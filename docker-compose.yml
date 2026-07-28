@@ -1,0 +1,17 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lend-api
+    env_file:
+      - .env
+    environment:
+      PORT: ${PORT:-3000}
+      MONGODB_URI: ${MONGODB_URI}
+      MONGODB_DB: ${MONGODB_DB:-lend}
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
