@@ -8,6 +8,7 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
 import { S3StorageService } from "../storage/s3-storage.service";
+import { UsersService } from "../users/users.service";
 import { CreateRentalOrderDto } from "./dto/create-rental-order.dto";
 import {
   RentalOrder,
@@ -29,6 +30,7 @@ export class RentalOrdersService {
     @InjectModel(Product.name)
     private readonly productModel: Model<ProductDocument>,
     private readonly s3StorageService: S3StorageService,
+    private readonly usersService: UsersService,
   ) {}
 
   async create(
@@ -74,9 +76,12 @@ export class RentalOrdersService {
         categorySlug: product.categorySlug,
         city: product.city,
         ownerName: product.ownerName,
+        imageKey: image?.key,
         imageUrl: image?.key
           ? await this.s3StorageService.getReadableUrl(image.key)
           : image?.url,
+        imageContentType: image?.contentType,
+        imageType: image?.type,
       },
       startDate: range.startDate,
       endDate: range.endDate,
@@ -91,10 +96,51 @@ export class RentalOrdersService {
   }
 
   async findMine(renterId: string): Promise<RentalOrderDocument[]> {
-    return this.rentalOrderModel
+    const orders = await this.rentalOrderModel
       .find({ renterId })
       .sort({ createdAt: -1 })
       .exec();
+
+    await Promise.all(orders.map((order) => this.hydrateOrderMedia(order)));
+
+    return orders;
+  }
+
+  async findOwned(ownerId: string, ownerName: string) {
+    const products = await this.productModel
+      .find({ $or: [{ ownerId }, { ownerName }] })
+      .select("_id")
+      .exec();
+    const productIds = products.map((product) => product._id);
+
+    if (productIds.length === 0) {
+      return [];
+    }
+
+    const orders = await this.rentalOrderModel
+      .find({ productId: { $in: productIds } })
+      .sort({ createdAt: -1 })
+      .exec();
+
+    await Promise.all(orders.map((order) => this.hydrateOrderMedia(order)));
+
+    return Promise.all(
+      orders.map(async (order) => {
+        const renter = await this.usersService.findById(order.renterId);
+
+        return {
+          ...order.toObject(),
+          renter: renter
+            ? {
+                id: renter.id,
+                fullName: renter.fullName,
+                email: renter.email,
+                phone: renter.phone,
+              }
+            : undefined,
+        };
+      }),
+    );
   }
 
   async updateStatus(
@@ -195,6 +241,32 @@ export class RentalOrdersService {
         endDate: { $gt: startDate },
       })
       .exec();
+  }
+
+  private async hydrateOrderMedia(order: RentalOrderDocument): Promise<void> {
+    let imageKey = order.productSnapshot.imageKey;
+    let product: ProductDocument | null = null;
+
+    if (!imageKey) {
+      product = await this.productModel.findById(order.productId).exec();
+      imageKey = product?.images[0]?.key;
+    }
+
+    if (imageKey) {
+      order.productSnapshot.imageUrl =
+        await this.s3StorageService.getReadableUrl(imageKey);
+    }
+
+    if (
+      !order.productSnapshot.imageContentType ||
+      !order.productSnapshot.imageType
+    ) {
+      product ??= await this.productModel.findById(order.productId).exec();
+      const image = product?.images.find((media) => media.key === imageKey);
+
+      order.productSnapshot.imageContentType = image?.contentType;
+      order.productSnapshot.imageType = image?.type;
+    }
   }
 
   private parseDateRange(

@@ -19,7 +19,10 @@ export type RentalProductSnapshot = {
   categorySlug: string;
   city: string;
   ownerName: string;
+  imageKey?: string;
   imageUrl?: string;
+  imageContentType?: string;
+  imageType?: "image" | "video";
 };
 
 @Schema({ timestamps: true })
@@ -38,7 +41,10 @@ export class RentalOrder {
       categorySlug: { type: String, required: true },
       city: { type: String, required: true },
       ownerName: { type: String, required: true },
+      imageKey: { type: String },
       imageUrl: { type: String },
+      imageContentType: { type: String },
+      imageType: { type: String, enum: ["image", "video"] },
     },
     required: true,
   })

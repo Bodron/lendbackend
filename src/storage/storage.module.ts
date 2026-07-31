@@ -1,12 +1,11 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
-import { S3StorageService } from "./s3-storage.service";
+import { StorageCoreModule } from "./storage-core.module";
 import { StorageController } from "./storage.controller";
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, StorageCoreModule],
   controllers: [StorageController],
-  providers: [S3StorageService],
-  exports: [S3StorageService],
+  exports: [StorageCoreModule],
 })
 export class StorageModule {}

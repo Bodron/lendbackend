@@ -3,12 +3,14 @@ import {
   Controller,
   Get,
   Headers,
+  Patch,
   Post,
   UnauthorizedException,
 } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
+import { UpdateAvatarDto } from "./dto/update-avatar.dto";
 
 @Controller("auth")
 export class AuthController {
@@ -29,6 +31,16 @@ export class AuthController {
     const token = this.extractBearerToken(authorization);
     const payload = this.authService.verifyToken(token);
     return this.authService.getProfile(payload.sub);
+  }
+
+  @Patch("me/avatar")
+  updateAvatar(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() updateAvatarDto: UpdateAvatarDto,
+  ) {
+    const token = this.extractBearerToken(authorization);
+    const payload = this.authService.verifyToken(token);
+    return this.authService.updateAvatar(payload.sub, updateAvatarDto);
   }
 
   private extractBearerToken(authorization?: string): string {

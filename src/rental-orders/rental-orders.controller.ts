@@ -36,6 +36,13 @@ export class RentalOrdersController {
     return this.rentalOrdersService.findMine(userId);
   }
 
+  @Get("owned")
+  async findOwned(@Headers("authorization") authorization: string | undefined) {
+    const userId = this.getUserId(authorization);
+    const user = await this.authService.getProfile(userId);
+    return this.rentalOrdersService.findOwned(user.id, user.fullName);
+  }
+
   @Get("products/:productId/availability")
   getAvailability(
     @Param("productId") productId: string,

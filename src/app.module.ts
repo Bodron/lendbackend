@@ -7,6 +7,7 @@ import { AuthModule } from "./auth/auth.module";
 import { CategoriesModule } from "./categories/categories.module";
 import { ProductsModule } from "./products/products.module";
 import { RentalOrdersModule } from "./rental-orders/rental-orders.module";
+import { StorageModule } from "./storage/storage.module";
 import { UsersModule } from "./users/users.module";
 
 @Module({
@@ -35,6 +36,7 @@ import { UsersModule } from "./users/users.module";
     UsersModule,
     AuthModule,
     CategoriesModule,
+    StorageModule,
     ProductsModule,
     RentalOrdersModule,
   ],

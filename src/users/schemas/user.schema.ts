@@ -20,6 +20,12 @@ export class User {
   @Prop({ required: true, trim: true })
   phone!: string;
 
+  @Prop({ trim: true })
+  avatarKey?: string;
+
+  @Prop({ trim: true })
+  avatarUrl?: string;
+
   @Prop({ required: true, select: false })
   passwordHash!: string;
 }

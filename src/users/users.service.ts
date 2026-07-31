@@ -8,6 +8,8 @@ export type SafeUser = {
   fullName: string;
   email: string;
   phone: string;
+  avatarUrl?: string;
+  avatarKey?: string;
   createdAt?: Date;
   updatedAt?: Date;
 };
@@ -54,6 +56,25 @@ export class UsersService {
     return user ? this.toSafeUser(user) : null;
   }
 
+  async updateAvatar(input: {
+    userId: string;
+    avatarUrl: string;
+    avatarKey?: string;
+  }): Promise<SafeUser | null> {
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        input.userId,
+        {
+          avatarUrl: input.avatarUrl,
+          avatarKey: input.avatarKey,
+        },
+        { new: true },
+      )
+      .exec();
+
+    return user ? this.toSafeUser(user) : null;
+  }
+
   toSafeUser(user: UserDocument): SafeUser {
     const createdAt = user.get("createdAt") as Date | undefined;
     const updatedAt = user.get("updatedAt") as Date | undefined;
@@ -63,6 +84,8 @@ export class UsersService {
       fullName: user.fullName,
       email: user.email,
       phone: user.phone,
+      avatarUrl: user.avatarUrl,
+      avatarKey: user.avatarKey,
       createdAt,
       updatedAt,
     };
