@@ -26,6 +26,19 @@ export class User {
   @Prop({ trim: true })
   avatarUrl?: string;
 
+  @Prop({ trim: true, index: true, sparse: true, unique: true })
+  appleSub?: string;
+
+  @Prop({ trim: true, index: true, sparse: true, unique: true })
+  googleSub?: string;
+
+  @Prop({
+    trim: true,
+    enum: ["password", "apple", "google"],
+    default: "password",
+  })
+  authProvider!: "password" | "apple" | "google";
+
   @Prop({ required: true, select: false })
   passwordHash!: string;
 }

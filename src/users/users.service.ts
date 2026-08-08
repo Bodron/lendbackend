@@ -19,6 +19,9 @@ type CreateUserInput = {
   email: string;
   phone: string;
   passwordHash: string;
+  appleSub?: string;
+  googleSub?: string;
+  authProvider?: "password" | "apple" | "google";
 };
 
 @Injectable()
@@ -51,6 +54,23 @@ export class UsersService {
       .exec();
   }
 
+  async findByAppleSub(appleSub: string): Promise<SafeUser | null> {
+    const user = await this.userModel.findOne({ appleSub }).exec();
+    return user ? this.toSafeUser(user) : null;
+  }
+
+  async findByGoogleSub(googleSub: string): Promise<SafeUser | null> {
+    const user = await this.userModel.findOne({ googleSub }).exec();
+    return user ? this.toSafeUser(user) : null;
+  }
+
+  async findByEmail(email: string): Promise<SafeUser | null> {
+    const user = await this.userModel
+      .findOne({ email: email.toLowerCase() })
+      .exec();
+    return user ? this.toSafeUser(user) : null;
+  }
+
   async findById(id: string): Promise<SafeUser | null> {
     const user = await this.userModel.findById(id).exec();
     return user ? this.toSafeUser(user) : null;
@@ -67,6 +87,42 @@ export class UsersService {
         {
           avatarUrl: input.avatarUrl,
           avatarKey: input.avatarKey,
+        },
+        { new: true },
+      )
+      .exec();
+
+    return user ? this.toSafeUser(user) : null;
+  }
+
+  async linkAppleAccount(input: {
+    userId: string;
+    appleSub: string;
+  }): Promise<SafeUser | null> {
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        input.userId,
+        {
+          appleSub: input.appleSub,
+          authProvider: "apple",
+        },
+        { new: true },
+      )
+      .exec();
+
+    return user ? this.toSafeUser(user) : null;
+  }
+
+  async linkGoogleAccount(input: {
+    userId: string;
+    googleSub: string;
+  }): Promise<SafeUser | null> {
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        input.userId,
+        {
+          googleSub: input.googleSub,
+          authProvider: "google",
         },
         { new: true },
       )

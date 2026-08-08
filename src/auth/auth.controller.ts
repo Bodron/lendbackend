@@ -8,6 +8,8 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { AuthService } from "./auth.service";
+import { AppleLoginDto } from "./dto/apple-login.dto";
+import { GoogleLoginDto } from "./dto/google-login.dto";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
 import { UpdateAvatarDto } from "./dto/update-avatar.dto";
@@ -24,6 +26,16 @@ export class AuthController {
   @Post("login")
   login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Post("apple")
+  loginWithApple(@Body() appleLoginDto: AppleLoginDto) {
+    return this.authService.loginWithApple(appleLoginDto);
+  }
+
+  @Post("google")
+  loginWithGoogle(@Body() googleLoginDto: GoogleLoginDto) {
+    return this.authService.loginWithGoogle(googleLoginDto);
   }
 
   @Get("me")
