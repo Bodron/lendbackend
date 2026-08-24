@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import Stripe from "stripe";
+import Stripe = require("stripe");
 
 @Injectable()
 export class StripePaymentsService {
