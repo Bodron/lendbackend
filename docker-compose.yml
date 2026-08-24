@@ -12,6 +12,9 @@ services:
       MONGODB_DB: ${MONGODB_DB:-lend}
       JWT_SECRET: ${JWT_SECRET:-change-this-secret}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
     ports:
       - "3000:3000"
     restart: unless-stopped

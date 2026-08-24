@@ -12,6 +12,21 @@ export enum RentalOrderStatus {
   Rejected = "rejected",
 }
 
+export enum RentalPaymentStatus {
+  RequiresPayment = "requires_payment",
+  Authorized = "authorized",
+  Captured = "captured",
+  Cancelled = "cancelled",
+  Refunded = "refunded",
+}
+
+export enum RentalPayoutStatus {
+  NotReady = "not_ready",
+  PendingOnboarding = "pending_onboarding",
+  Ready = "ready",
+  PaidOut = "paid_out",
+}
+
 export type RentalProductSnapshot = {
   title: string;
   slug: string;
@@ -56,6 +71,18 @@ export class RentalOrder {
   @Prop({ required: true, index: true })
   endDate!: Date;
 
+  @Prop({ required: true, trim: true, default: "10:00" })
+  pickupTime!: string;
+
+  @Prop({ required: true, trim: true, default: "18:00" })
+  returnTime!: string;
+
+  @Prop({ required: true, enum: ["day", "hour"], default: "day" })
+  rentalMode!: "day" | "hour";
+
+  @Prop({ required: true, min: 1, default: 1 })
+  rentalHours!: number;
+
   @Prop({ required: true, min: 1 })
   rentalDays!: number;
 
@@ -68,11 +95,39 @@ export class RentalOrder {
   @Prop({ required: true, min: 0 })
   serviceFee!: number;
 
+  @Prop({ required: true, min: 0, default: 0 })
+  platformFee!: number;
+
+  @Prop({ required: true, min: 0, default: 0 })
+  ownerEarnings!: number;
+
   @Prop({ required: true, min: 0 })
   deposit!: number;
 
   @Prop({ required: true, min: 0 })
   total!: number;
+
+  @Prop({ trim: true })
+  stripePaymentIntentId?: string;
+
+  @Prop({ trim: true })
+  stripePaymentClientSecret?: string;
+
+  @Prop({
+    required: true,
+    enum: Object.values(RentalPaymentStatus),
+    default: RentalPaymentStatus.RequiresPayment,
+    index: true,
+  })
+  paymentStatus!: RentalPaymentStatus;
+
+  @Prop({
+    required: true,
+    enum: Object.values(RentalPayoutStatus),
+    default: RentalPayoutStatus.NotReady,
+    index: true,
+  })
+  payoutStatus!: RentalPayoutStatus;
 
   @Prop({
     required: true,

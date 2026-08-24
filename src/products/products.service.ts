@@ -40,7 +40,10 @@ export class ProductsService {
     );
   }
 
-  async findMine(userId: string, ownerName: string): Promise<ProductResponse[]> {
+  async findMine(
+    userId: string,
+    ownerName: string,
+  ): Promise<ProductResponse[]> {
     const products = await this.productModel
       .find({
         $or: [{ ownerId: userId }, { ownerName }],
@@ -69,6 +72,8 @@ export class ProductsService {
       pricePerDay: dto.pricePerDay,
       deposit: dto.deposit,
       city: dto.city,
+      pickupTime: dto.pickupTime ?? "10:00",
+      returnTime: dto.returnTime ?? "18:00",
       ownerName: owner.fullName,
       rating: 0,
       isAvailable: true,
@@ -112,6 +117,8 @@ export class ProductsService {
     if (dto.pricePerDay !== undefined) product.pricePerDay = dto.pricePerDay;
     if (dto.deposit !== undefined) product.deposit = dto.deposit;
     if (dto.city !== undefined) product.city = dto.city;
+    if (dto.pickupTime !== undefined) product.pickupTime = dto.pickupTime;
+    if (dto.returnTime !== undefined) product.returnTime = dto.returnTime;
     if (dto.media !== undefined) product.images = dto.media;
 
     return this.withReadableImageUrls(await product.save());
@@ -147,6 +154,8 @@ export class ProductsService {
               pricePerDay: product.pricePerDay,
               deposit: product.deposit,
               city: product.city,
+              pickupTime: product.pickupTime ?? "10:00",
+              returnTime: product.returnTime ?? "18:00",
               ownerName: product.ownerName,
               rating: product.rating,
               isAvailable: true,

@@ -2,6 +2,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsInt,
+  Matches,
   IsOptional,
   IsString,
   Max,
@@ -43,6 +44,16 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   city?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  pickupTime?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  returnTime?: string;
 
   @IsOptional()
   @IsArray()

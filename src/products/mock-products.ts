@@ -7,6 +7,8 @@ export type MockProduct = {
   pricePerDay: number;
   deposit: number;
   city: string;
+  pickupTime?: string;
+  returnTime?: string;
   ownerName: string;
   rating: number;
   imageSeed: string;

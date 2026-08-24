@@ -43,6 +43,12 @@ export class Product {
   @Prop({ required: true, trim: true })
   city!: string;
 
+  @Prop({ required: true, trim: true, default: "10:00" })
+  pickupTime!: string;
+
+  @Prop({ required: true, trim: true, default: "18:00" })
+  returnTime!: string;
+
   @Prop({ required: true, trim: true })
   ownerName!: string;
 

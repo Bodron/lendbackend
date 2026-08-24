@@ -10,6 +10,9 @@ export type SafeUser = {
   phone: string;
   avatarUrl?: string;
   avatarKey?: string;
+  stripeAccountId?: string;
+  stripePayoutsEnabled?: boolean;
+  stripeDetailsSubmitted?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 };
@@ -131,6 +134,31 @@ export class UsersService {
     return user ? this.toSafeUser(user) : null;
   }
 
+  async updateStripeAccount(input: {
+    userId: string;
+    stripeAccountId: string;
+    stripePayoutsEnabled?: boolean;
+    stripeDetailsSubmitted?: boolean;
+  }): Promise<SafeUser | null> {
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        input.userId,
+        {
+          stripeAccountId: input.stripeAccountId,
+          ...(input.stripePayoutsEnabled !== undefined
+            ? { stripePayoutsEnabled: input.stripePayoutsEnabled }
+            : {}),
+          ...(input.stripeDetailsSubmitted !== undefined
+            ? { stripeDetailsSubmitted: input.stripeDetailsSubmitted }
+            : {}),
+        },
+        { new: true },
+      )
+      .exec();
+
+    return user ? this.toSafeUser(user) : null;
+  }
+
   toSafeUser(user: UserDocument): SafeUser {
     const createdAt = user.get("createdAt") as Date | undefined;
     const updatedAt = user.get("updatedAt") as Date | undefined;
@@ -142,6 +170,9 @@ export class UsersService {
       phone: user.phone,
       avatarUrl: user.avatarUrl,
       avatarKey: user.avatarKey,
+      stripeAccountId: user.stripeAccountId,
+      stripePayoutsEnabled: user.stripePayoutsEnabled,
+      stripeDetailsSubmitted: user.stripeDetailsSubmitted,
       createdAt,
       updatedAt,
     };

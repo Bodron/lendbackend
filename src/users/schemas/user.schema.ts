@@ -26,6 +26,15 @@ export class User {
   @Prop({ trim: true })
   avatarUrl?: string;
 
+  @Prop({ trim: true })
+  stripeAccountId?: string;
+
+  @Prop({ default: false })
+  stripePayoutsEnabled!: boolean;
+
+  @Prop({ default: false })
+  stripeDetailsSubmitted!: boolean;
+
   @Prop({ trim: true, index: true, sparse: true, unique: true })
   appleSub?: string;
 
