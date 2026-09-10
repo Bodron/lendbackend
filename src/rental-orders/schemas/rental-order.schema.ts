@@ -85,7 +85,7 @@ export class RentalOrder {
   @Prop({ required: true, trim: true, default: "18:00" })
   returnTime!: string;
 
-  @Prop({ required: true, enum: ["day", "hour"], default: "day" })
+  @Prop({ required: true, enum: ["day", "hour", "month"], default: "day" })
   rentalMode!: "day" | "hour" | "month";
 
   @Prop({ required: true, min: 1, default: 1 })

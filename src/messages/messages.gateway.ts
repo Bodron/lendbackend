@@ -20,6 +20,10 @@ export class MessagesGateway {
     private readonly authService: AuthService,
   ) {}
 
+  broadcast(productId: string, message: object) {
+    this.server.to(`product:${productId}`).emit("message.new", message);
+  }
+
   handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth?.token as string | undefined;
@@ -47,7 +51,7 @@ export class MessagesGateway {
     @MessageBody() dto: CreateMessageDto,
   ) {
     const message = await this.messagesService.create(client.data.userId, dto);
-    this.server.to(this.room(dto.productId)).emit("message.new", message);
+    this.broadcast(dto.productId, message);
     return message;
   }
 

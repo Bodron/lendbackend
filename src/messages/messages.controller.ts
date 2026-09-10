@@ -2,12 +2,14 @@ import { Body, Controller, Get, Headers, Param, Post, UnauthorizedException } fr
 import { AuthService } from "../auth/auth.service";
 import { CreateMessageDto } from "./dto/create-message.dto";
 import { MessagesService } from "./messages.service";
+import { MessagesGateway } from "./messages.gateway";
 
 @Controller("messages")
 export class MessagesController {
   constructor(
     private readonly messagesService: MessagesService,
     private readonly authService: AuthService,
+    private readonly messagesGateway: MessagesGateway,
   ) {}
 
   @Get()
@@ -24,11 +26,16 @@ export class MessagesController {
   }
 
   @Post()
-  create(
+  async create(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: CreateMessageDto,
   ) {
-    return this.messagesService.create(this.getUserId(authorization), dto);
+    const message = await this.messagesService.create(
+      this.getUserId(authorization),
+      dto,
+    );
+    this.messagesGateway.broadcast(dto.productId, message);
+    return message;
   }
 
   private getUserId(authorization?: string): string {
