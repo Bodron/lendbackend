@@ -1,7 +1,9 @@
 import {
   IsDateString,
   IsIn,
+  IsInt,
   IsMongoId,
+  Min,
   IsOptional,
   IsString,
   Matches,
@@ -30,4 +32,9 @@ export class CreateRentalOrderDto {
   @IsString()
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
   returnTime?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  negotiatedSubtotal?: number;
 }

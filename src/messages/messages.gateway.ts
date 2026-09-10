@@ -24,6 +24,10 @@ export class MessagesGateway {
     this.server.to(`product:${productId}`).emit("message.new", message);
   }
 
+  broadcastOffer(productId: string, offer: object) {
+    this.server.to(`product:${productId}`).emit("offer.updated", offer);
+  }
+
   handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth?.token as string | undefined;

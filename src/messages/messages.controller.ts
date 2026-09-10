@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Post, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Param, Patch, Post, UnauthorizedException } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import { CreateMessageDto } from "./dto/create-message.dto";
+import { CreateRentalOfferDto } from "./dto/create-rental-offer.dto";
 import { MessagesService } from "./messages.service";
 import { MessagesGateway } from "./messages.gateway";
 
@@ -36,6 +37,32 @@ export class MessagesController {
     );
     this.messagesGateway.broadcast(dto.productId, message);
     return message;
+  }
+
+  @Get("product/:productId/offers")
+  findOffers(@Headers("authorization") authorization: string | undefined, @Param("productId") productId: string) {
+    return this.messagesService.findOffers(this.getUserId(authorization), productId);
+  }
+
+  @Post("offers")
+  async createOffer(@Headers("authorization") authorization: string | undefined, @Body() dto: CreateRentalOfferDto) {
+    const offer = await this.messagesService.createOffer(this.getUserId(authorization), dto);
+    this.messagesGateway.broadcastOffer(dto.productId, offer);
+    return offer;
+  }
+
+  @Patch("offers/:offerId/accept")
+  async acceptOffer(@Headers("authorization") authorization: string | undefined, @Param("offerId") offerId: string) {
+    const offer = await this.messagesService.updateOffer(this.getUserId(authorization), offerId, "accepted");
+    this.messagesGateway.broadcastOffer(offer.productId.toString(), offer);
+    return offer;
+  }
+
+  @Patch("offers/:offerId/reject")
+  async rejectOffer(@Headers("authorization") authorization: string | undefined, @Param("offerId") offerId: string) {
+    const offer = await this.messagesService.updateOffer(this.getUserId(authorization), offerId, "rejected");
+    this.messagesGateway.broadcastOffer(offer.productId.toString(), offer);
+    return offer;
   }
 
   private getUserId(authorization?: string): string {

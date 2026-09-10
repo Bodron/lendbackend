@@ -106,12 +106,16 @@ export class RentalOrdersService {
             returnTime,
           )
         : range.rentalDays * 24;
-    const subtotal =
+    const calculatedSubtotal =
       rentalMode === "hour"
         ? rentalHours * hourlyPrice
         : rentalMode === "month"
           ? product.pricePerMonth!
           : range.rentalDays * product.pricePerDay;
+    const subtotal = dto.negotiatedSubtotal ?? calculatedSubtotal;
+    if (dto.negotiatedSubtotal !== undefined && dto.negotiatedSubtotal <= 0) {
+      throw new BadRequestException("Suma negociata nu este valida.");
+    }
     const serviceFee = Math.round(subtotal * 0.05);
     const image = product.images[0];
 
