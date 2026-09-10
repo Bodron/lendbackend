@@ -13,8 +13,8 @@ export class RentalOffer {
   @Prop({ required: true }) endDate!: Date;
   @Prop({ required: true, enum: ["day", "hour", "month"] })
   rentalMode!: "day" | "hour" | "month";
-  @Prop({ required: true, enum: ["pending", "accepted", "rejected", "expired"], default: "pending" })
-  status!: "pending" | "accepted" | "rejected" | "expired";
+  @Prop({ required: true, enum: ["pending", "accepted", "rejected", "expired", "checkout_started"], default: "pending" })
+  status!: "pending" | "accepted" | "rejected" | "expired" | "checkout_started";
 }
 
 export const RentalOfferSchema = SchemaFactory.createForClass(RentalOffer);

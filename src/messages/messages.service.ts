@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { PushService } from "../push/push.service";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
@@ -12,6 +13,7 @@ import { RentalOffer, RentalOfferDocument } from "./schemas/rental-offer.schema"
 @Injectable()
 export class MessagesService {
   constructor(
+    private readonly pushService: PushService,
     @InjectModel(Message.name)
     private readonly messageModel: Model<MessageDocument>,
     @InjectModel(Product.name)
@@ -75,6 +77,17 @@ export class MessagesService {
     if (offer.status !== "pending") throw new BadRequestException("Oferta nu mai este activa.");
     offer.status = status;
     return offer.save();
+  }
+
+  async claimOffer(userId: string, offerId: string) {
+    if (!Types.ObjectId.isValid(offerId)) throw new NotFoundException("Oferta nu a fost gasita.");
+    const offer = await this.offerModel.findOneAndUpdate(
+      { _id: offerId, senderId: userId, status: "accepted" },
+      { $set: { status: "checkout_started" } },
+      { new: true },
+    ).exec();
+    if (!offer) throw new BadRequestException("Oferta nu mai poate fi folosita.");
+    return offer;
   }
 
   async findThreads(userId: string) {
@@ -142,11 +155,13 @@ export class MessagesService {
       throw new BadRequestException("Nu există încă un utilizator în această conversație.");
     }
 
-    return this.messageModel.create({
+    const message = await this.messageModel.create({
       productId: product._id,
       senderId: userId,
       recipientId,
       body: dto.body.trim(),
     });
+    void this.pushService.sendMessage(recipientId, message._id.toString(), product._id.toString(), product.title);
+    return message;
   }
 }

@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { PushModule } from "../push/push.module";
 import { MongooseModule } from "@nestjs/mongoose";
 import { AuthModule } from "../auth/auth.module";
 import { StorageModule } from "../storage/storage.module";
@@ -12,6 +13,7 @@ import { MessagesGateway } from "./messages.gateway";
 
 @Module({
   imports: [
+    PushModule,
     AuthModule,
     StorageModule,
     MongooseModule.forFeature([

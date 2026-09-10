@@ -65,6 +65,13 @@ export class MessagesController {
     return offer;
   }
 
+  @Patch("offers/:offerId/claim")
+  async claimOffer(@Headers("authorization") authorization: string | undefined, @Param("offerId") offerId: string) {
+    const offer = await this.messagesService.claimOffer(this.getUserId(authorization), offerId);
+    this.messagesGateway.broadcastOffer(offer.productId.toString(), offer);
+    return offer;
+  }
+
   private getUserId(authorization?: string): string {
     const [type, token] = authorization?.split(" ") ?? [];
     if (type !== "Bearer" || !token) {
