@@ -7,7 +7,7 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { CategoriesService } from "../categories/categories.service";
 import { S3StorageService } from "../storage/s3-storage.service";
-import { type SafeUser } from "../users/users.service";
+import { type SafeUser, UsersService } from "../users/users.service";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
 import { mockProducts } from "./mock-products";
@@ -16,6 +16,11 @@ import {
   ProductDocument,
   type ProductImage,
 } from "./schemas/product.schema";
+import {
+  RentalOrder,
+  RentalOrderDocument,
+  RentalOrderStatus,
+} from "../rental-orders/schemas/rental-order.schema";
 
 type ProductResponse = Record<string, unknown> & {
   images: ProductImage[];
@@ -26,8 +31,11 @@ export class ProductsService {
   constructor(
     @InjectModel(Product.name)
     private readonly productModel: Model<ProductDocument>,
+    @InjectModel(RentalOrder.name)
+    private readonly rentalOrderModel: Model<RentalOrderDocument>,
     private readonly s3StorageService: S3StorageService,
     private readonly categoriesService: CategoriesService,
+    private readonly usersService: UsersService,
   ) {}
 
   async findAll(): Promise<ProductResponse[]> {
@@ -181,6 +189,28 @@ export class ProductsService {
     product: ProductDocument,
   ): Promise<ProductResponse> {
     const productObject = product.toObject();
+    const owner = product.ownerId
+      ? await this.usersService.findById(product.ownerId)
+      : null;
+    const ownerAvatarUrl = owner?.avatarKey
+      ? await this.s3StorageService.getReadableUrl(owner.avatarKey)
+      : owner?.avatarUrl;
+    const ownerProductIds = owner
+      ? await this.productModel
+          .find({ ownerId: owner.id })
+          .select("_id")
+          .exec()
+      : [{ _id: product._id }];
+    const ownerRentalCount = await this.rentalOrderModel.countDocuments({
+      productId: { $in: ownerProductIds.map((item) => item._id) },
+      status: {
+        $in: [
+          RentalOrderStatus.Confirmed,
+          RentalOrderStatus.Active,
+          RentalOrderStatus.Completed,
+        ],
+      },
+    });
     const images = await Promise.all(
       product.images.map(async (image) => ({
         url: await this.s3StorageService.getReadableUrl(image.key),
@@ -194,6 +224,8 @@ export class ProductsService {
     return {
       ...productObject,
       images,
+      ownerAvatarUrl,
+      ownerRentalCount,
     };
   }
 

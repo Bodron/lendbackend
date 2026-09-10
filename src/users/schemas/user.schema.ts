@@ -26,6 +26,12 @@ export class User {
   @Prop({ trim: true })
   avatarUrl?: string;
 
+  @Prop()
+  deletionRequestedAt?: Date;
+
+  @Prop({ enum: ["pending", "completed", "cancelled"] })
+  deletionRequestStatus?: "pending" | "completed" | "cancelled";
+
   @Prop({ trim: true })
   stripeAccountId?: string;
 

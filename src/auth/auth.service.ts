@@ -197,6 +197,12 @@ export class AuthService {
     return this.withReadableAvatar(user);
   }
 
+  async requestAccountDeletion(userId: string) {
+    const result = await this.usersService.requestAccountDeletion(userId);
+    if (!result) throw new UnauthorizedException("Token invalid.");
+    return result;
+  }
+
   verifyToken(token: string): { sub: string; email: string } {
     return this.jwtService.verify<{ sub: string; email: string }>(token);
   }

@@ -98,6 +98,24 @@ export class UsersService {
     return user ? this.toSafeUser(user) : null;
   }
 
+  async requestAccountDeletion(userId: string) {
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      {
+        deletionRequestedAt: new Date(),
+        deletionRequestStatus: "pending",
+      },
+      { new: true },
+    ).exec();
+
+    if (!user) return null;
+    return {
+      requested: true,
+      status: user.deletionRequestStatus,
+      requestedAt: user.deletionRequestedAt,
+    };
+  }
+
   async linkAppleAccount(input: {
     userId: string;
     appleSub: string;

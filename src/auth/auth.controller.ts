@@ -55,6 +55,13 @@ export class AuthController {
     return this.authService.updateAvatar(payload.sub, updateAvatarDto);
   }
 
+  @Post("me/deletion-request")
+  requestAccountDeletion(@Headers("authorization") authorization?: string) {
+    const token = this.extractBearerToken(authorization);
+    const payload = this.authService.verifyToken(token);
+    return this.authService.requestAccountDeletion(payload.sub);
+  }
+
   private extractBearerToken(authorization?: string): string {
     const [type, token] = authorization?.split(" ") ?? [];
 

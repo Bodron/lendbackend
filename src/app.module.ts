@@ -10,6 +10,8 @@ import { ProductsModule } from "./products/products.module";
 import { RentalOrdersModule } from "./rental-orders/rental-orders.module";
 import { StorageModule } from "./storage/storage.module";
 import { UsersModule } from "./users/users.module";
+import { MessagesModule } from "./messages/messages.module";
+import { ReviewsModule } from "./reviews/reviews.module";
 
 @Module({
   imports: [
@@ -41,6 +43,8 @@ import { UsersModule } from "./users/users.module";
     PaymentsModule,
     ProductsModule,
     RentalOrdersModule,
+    MessagesModule,
+    ReviewsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
