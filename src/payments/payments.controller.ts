@@ -4,6 +4,7 @@ import {
   Get,
   Headers,
   Post,
+  Req,
   UnauthorizedException,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
@@ -34,6 +35,37 @@ export class PaymentsController {
   @Get("config")
   getConfig() {
     return this.stripePaymentsService.getConfig();
+  }
+
+  @Post("webhook")
+  async webhook(
+    @Req() request: any,
+    @Headers("stripe-signature") signature: string,
+  ) {
+    const event = this.stripePaymentsService.constructWebhookEvent(
+      request.rawBody ?? request.body,
+      signature,
+    );
+    const object = event.data.object as any;
+    const orderId = object.metadata?.rentalOrderId;
+    if (orderId) {
+      const update: Record<string, unknown> = {};
+      if (event.type === "payment_intent.payment_failed") {
+        update.paymentStatus = RentalPaymentStatus.Failed;
+      } else if (event.type === "payment_intent.amount_capturable_updated") {
+        update.paymentStatus = RentalPaymentStatus.Authorized;
+      } else if (event.type === "payment_intent.succeeded") {
+        update.paymentStatus = RentalPaymentStatus.Captured;
+      } else if (event.type === "charge.refunded") {
+        update.paymentStatus = RentalPaymentStatus.Refunded;
+      }
+      if (Object.keys(update).length) {
+        await this.rentalOrderModel
+          .updateOne({ _id: orderId }, { $set: update })
+          .exec();
+      }
+    }
+    return { received: true };
   }
 
   @Post("connect/onboarding-link")
@@ -101,11 +133,22 @@ export class PaymentsController {
     }
 
     const productIds = await this.findOwnedProductIds(user.id, user.fullName);
+    await this.rentalOrderModel.updateMany(
+      {
+        productId: { $in: productIds },
+        payoutStatus: RentalPayoutStatus.HeldUntilReturn,
+        payoutEligibleAt: { $lte: new Date() },
+      },
+      { payoutStatus: RentalPayoutStatus.Eligible },
+    ).exec();
     const payableOrders = await this.rentalOrderModel
       .find({
         productId: { $in: productIds },
         paymentStatus: RentalPaymentStatus.Captured,
-        payoutStatus: { $ne: RentalPayoutStatus.PaidOut },
+        status: "completed",
+        payoutStatus: RentalPayoutStatus.Eligible,
+        payoutEligibleAt: { $lte: new Date() },
+        stripeTransferId: { $exists: false },
       })
       .exec();
     const amount = payableOrders.reduce(
@@ -123,12 +166,10 @@ export class PaymentsController {
       userId,
     });
 
-    await this.rentalOrderModel
-      .updateMany(
-        { _id: { $in: payableOrders.map((order) => order._id) } },
-        { payoutStatus: RentalPayoutStatus.PaidOut },
-      )
-      .exec();
+    await this.rentalOrderModel.updateMany(
+      { _id: { $in: payableOrders.map((order) => order._id) }, stripeTransferId: { $exists: false } },
+      { payoutStatus: RentalPayoutStatus.PaidOut, stripeTransferId: transfer.id },
+    ).exec();
 
     return {
       status: "paid_out",

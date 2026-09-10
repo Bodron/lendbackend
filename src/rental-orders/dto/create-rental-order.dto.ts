@@ -18,8 +18,8 @@ export class CreateRentalOrderDto {
   endDate!: string;
 
   @IsOptional()
-  @IsIn(["day", "hour"])
-  rentalMode?: "day" | "hour";
+  @IsIn(["day", "hour", "month"])
+  rentalMode?: "day" | "hour" | "month";
 
   @IsOptional()
   @IsString()

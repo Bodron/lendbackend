@@ -4,6 +4,7 @@ import {
   IsInt,
   Matches,
   IsNotEmpty,
+  IsIn,
   IsOptional,
   IsString,
   Max,
@@ -35,6 +36,12 @@ export class CreateProductDto {
   @Max(100000)
   pricePerDay!: number;
 
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000000)
+  pricePerMonth?: number;
+
   @IsInt()
   @Min(0)
   @Max(100000)
@@ -53,6 +60,11 @@ export class CreateProductDto {
   @IsString()
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
   returnTime?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsIn(["hour", "day", "month"], { each: true })
+  rentalModes?: ("hour" | "day" | "month")[];
 
   @IsOptional()
   @IsArray()

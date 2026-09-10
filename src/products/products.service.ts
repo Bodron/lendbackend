@@ -70,10 +70,12 @@ export class ProductsService {
       categorySlug: dto.categorySlug,
       description: dto.description,
       pricePerDay: dto.pricePerDay,
+      pricePerMonth: dto.pricePerMonth,
       deposit: dto.deposit,
       city: dto.city,
       pickupTime: dto.pickupTime ?? "10:00",
       returnTime: dto.returnTime ?? "18:00",
+      rentalModes: dto.rentalModes?.length ? dto.rentalModes : ["hour", "day"],
       ownerName: owner.fullName,
       rating: 0,
       isAvailable: true,
@@ -115,11 +117,13 @@ export class ProductsService {
     if (dto.categorySlug !== undefined) product.categorySlug = dto.categorySlug;
     if (dto.description !== undefined) product.description = dto.description;
     if (dto.pricePerDay !== undefined) product.pricePerDay = dto.pricePerDay;
+    if (dto.pricePerMonth !== undefined) product.pricePerMonth = dto.pricePerMonth;
     if (dto.deposit !== undefined) product.deposit = dto.deposit;
     if (dto.city !== undefined) product.city = dto.city;
     if (dto.pickupTime !== undefined) product.pickupTime = dto.pickupTime;
     if (dto.returnTime !== undefined) product.returnTime = dto.returnTime;
     if (dto.media !== undefined) product.images = dto.media;
+    if (dto.rentalModes !== undefined) product.rentalModes = dto.rentalModes;
 
     return this.withReadableImageUrls(await product.save());
   }
@@ -156,6 +160,7 @@ export class ProductsService {
               city: product.city,
               pickupTime: product.pickupTime ?? "10:00",
               returnTime: product.returnTime ?? "18:00",
+              rentalModes: product.rentalModes ?? ["hour", "day"],
               ownerName: product.ownerName,
               rating: product.rating,
               isAvailable: true,

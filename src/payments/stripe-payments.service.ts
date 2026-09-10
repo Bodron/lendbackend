@@ -23,6 +23,14 @@ export class StripePaymentsService {
     };
   }
 
+  constructWebhookEvent(payload: Buffer | string, signature: string) {
+    const secret = this.configService.get<string>("STRIPE_WEBHOOK_SECRET");
+    if (!secret) {
+      throw new BadRequestException("Stripe webhook secret nu este configurat.");
+    }
+    return this.getStripe().webhooks.constructEvent(payload, signature, secret);
+  }
+
   async createManualCapturePaymentIntent(input: {
     amountRon: number;
     orderId: string;
@@ -34,7 +42,6 @@ export class StripePaymentsService {
     return stripe.paymentIntents.create({
       amount: this.toMinorUnits(input.amountRon),
       currency: "ron",
-      capture_method: "manual",
       automatic_payment_methods: { enabled: true },
       metadata: {
         rentalOrderId: input.orderId,

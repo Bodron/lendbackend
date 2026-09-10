@@ -9,6 +9,7 @@ export type MockProduct = {
   city: string;
   pickupTime?: string;
   returnTime?: string;
+  rentalModes?: ("hour" | "day")[];
   ownerName: string;
   rating: number;
   imageSeed: string;

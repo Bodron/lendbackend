@@ -37,6 +37,9 @@ export class Product {
   @Prop({ required: true, min: 0 })
   pricePerDay!: number;
 
+  @Prop({ min: 0 })
+  pricePerMonth?: number;
+
   @Prop({ required: true, min: 0 })
   deposit!: number;
 
@@ -48,6 +51,9 @@ export class Product {
 
   @Prop({ required: true, trim: true, default: "18:00" })
   returnTime!: string;
+
+  @Prop({ type: [String], enum: ["hour", "day", "month"], default: ["hour", "day"] })
+  rentalModes!: ("hour" | "day" | "month")[];
 
   @Prop({ required: true, trim: true })
   ownerName!: string;

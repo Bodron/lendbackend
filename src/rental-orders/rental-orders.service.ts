@@ -32,6 +32,7 @@ const blockingStatuses = [
 
 @Injectable()
 export class RentalOrdersService {
+  private static readonly HOURLY_TURNAROUND_BUFFER_MINUTES = 60;
   constructor(
     @InjectModel(RentalOrder.name)
     private readonly rentalOrderModel: Model<RentalOrderDocument>,
@@ -61,15 +62,32 @@ export class RentalOrdersService {
     }
 
     const range = this.parseDateRange(dto.startDate, dto.endDate);
+    const pickupTime = dto.pickupTime ?? product.pickupTime ?? "10:00";
+    const returnTime = dto.returnTime ?? product.returnTime ?? "18:00";
+    const rentalMode = dto.rentalMode ?? "day";
+    if (rentalMode === "month" && (!product.pricePerMonth || !product.rentalModes.includes("month"))) {
+      throw new BadRequestException("Produsul nu are inchiriere lunara configurata.");
+    }
+    const requestedStart =
+      rentalMode === "hour"
+        ? this.withTime(range.startDate, pickupTime)
+        : range.startDate;
+    const requestedEnd =
+      rentalMode === "hour"
+        ? new Date(
+            this.withTime(range.endDate, returnTime).getTime() +
+              RentalOrdersService.HOURLY_TURNAROUND_BUFFER_MINUTES * 60 * 1000,
+          )
+        : range.endDate;
     const overlappingOrder = await this.findOverlappingOrder(
       product._id,
-      range.startDate,
-      range.endDate,
+      requestedStart,
+      requestedEnd,
     );
     const overlappingBlock = await this.findOverlappingBlock(
       product._id,
-      range.startDate,
-      range.endDate,
+      requestedStart,
+      requestedEnd,
     );
 
     if (overlappingOrder || overlappingBlock) {
@@ -78,9 +96,6 @@ export class RentalOrdersService {
       );
     }
 
-    const pickupTime = dto.pickupTime ?? product.pickupTime ?? "10:00";
-    const returnTime = dto.returnTime ?? product.returnTime ?? "18:00";
-    const rentalMode = dto.rentalMode ?? "day";
     const hourlyPrice = Math.max(1, Math.round(product.pricePerDay / 8));
     const rentalHours =
       rentalMode === "hour"
@@ -94,7 +109,9 @@ export class RentalOrdersService {
     const subtotal =
       rentalMode === "hour"
         ? rentalHours * hourlyPrice
-        : range.rentalDays * product.pricePerDay;
+        : rentalMode === "month"
+          ? product.pricePerMonth!
+          : range.rentalDays * product.pricePerDay;
     const serviceFee = Math.round(subtotal * 0.05);
     const image = product.images[0];
 
@@ -133,6 +150,10 @@ export class RentalOrdersService {
       total: subtotal + serviceFee + product.deposit,
       paymentStatus: RentalPaymentStatus.RequiresPayment,
       payoutStatus: RentalPayoutStatus.NotReady,
+      sellerGrossAmount: ownerEarnings,
+      sellerNetAmount: ownerEarnings,
+      refundStatus: "none",
+      disputeStatus: "none",
       status: RentalOrderStatus.Pending,
     });
 
@@ -228,6 +249,11 @@ export class RentalOrdersService {
     }
 
     order.status = status;
+    if (status === RentalOrderStatus.Completed &&
+        order.paymentStatus === RentalPaymentStatus.Captured) {
+      order.payoutEligibleAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      order.payoutStatus = RentalPayoutStatus.HeldUntilReturn;
+    }
     return order.save();
   }
 
@@ -249,11 +275,11 @@ export class RentalOrdersService {
       order.stripePaymentIntentId,
     );
 
-    if (paymentIntent.status !== "requires_capture") {
+    if (paymentIntent.status !== "succeeded") {
       throw new BadRequestException("Plata nu este autorizata in Stripe.");
     }
 
-    order.paymentStatus = RentalPaymentStatus.Authorized;
+    order.paymentStatus = RentalPaymentStatus.Captured;
     return order.save();
   }
 
@@ -269,8 +295,8 @@ export class RentalOrdersService {
       throw new BadRequestException("Cererea nu mai poate fi acceptata.");
     }
 
-    if (order.paymentStatus !== RentalPaymentStatus.Authorized) {
-      throw new BadRequestException("Cererea nu are plata autorizata inca.");
+    if (order.paymentStatus !== RentalPaymentStatus.Captured) {
+      throw new BadRequestException("Cererea nu are plata confirmata inca.");
     }
 
     const overlappingOrder = await this.findOverlappingOrder(
@@ -285,14 +311,6 @@ export class RentalOrdersService {
         "Exista deja o rezervare activa pe aceasta perioada.",
       );
     }
-
-    if (!order.stripePaymentIntentId) {
-      throw new BadRequestException("Comanda nu are plata Stripe.");
-    }
-
-    await this.stripePaymentsService.capturePaymentIntent(
-      order.stripePaymentIntentId,
-    );
 
     order.status = RentalOrderStatus.Confirmed;
     order.paymentStatus = RentalPaymentStatus.Captured;
@@ -425,6 +443,8 @@ export class RentalOrdersService {
         id: order._id.toString(),
         startDate: this.toDateKey(order.startDate),
         endDate: this.toDateKey(order.endDate),
+        pickupTime: order.pickupTime,
+        returnTime: order.returnTime,
         status: order.status,
       })),
       manualBlocks: blocks.map((block) => ({
