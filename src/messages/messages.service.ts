@@ -74,14 +74,31 @@ export class MessagesService {
     if (!product.ownerId) {
       throw new BadRequestException("Anuntul nu are un proprietar asociat.");
     }
+    let recipientId = product.ownerId;
     if (product.ownerId === userId) {
-      throw new BadRequestException("Nu iti poti trimite mesaj tie insuti.");
+      const previousMessage = await this.messageModel
+        .findOne({
+          productId: product._id,
+          $or: [{ senderId: userId }, { recipientId: userId }],
+        })
+        .sort({ createdAt: -1 })
+        .exec();
+
+      recipientId = previousMessage
+        ? previousMessage.senderId === userId
+          ? previousMessage.recipientId
+          : previousMessage.senderId
+        : "";
+    }
+
+    if (!recipientId || recipientId === userId) {
+      throw new BadRequestException("Nu există încă un utilizator în această conversație.");
     }
 
     return this.messageModel.create({
       productId: product._id,
       senderId: userId,
-      recipientId: product.ownerId,
+      recipientId,
       body: dto.body.trim(),
     });
   }
