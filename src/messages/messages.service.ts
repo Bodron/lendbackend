@@ -45,11 +45,26 @@ export class MessagesService {
       { $set: { read: true } },
     ).exec();
 
+    const latestMessage = messages[messages.length - 1];
+    const otherUserId = latestMessage
+      ? latestMessage.senderId === userId
+        ? latestMessage.recipientId
+        : latestMessage.senderId
+      : product.ownerId;
+    const participant = otherUserId
+      ? await this.userModel.findById(otherUserId).select("fullName avatarUrl avatarKey").exec()
+      : null;
+    const participantAvatarUrl = participant?.avatarKey
+      ? await this.s3StorageService.getReadableUrl(participant.avatarKey)
+      : participant?.avatarUrl;
+
     return {
       productId,
       productTitle: product.title,
       ownerId: product.ownerId,
       ownerName: product.ownerName,
+      participantName: participant?.fullName ?? product.ownerName ?? "Utilizator",
+      participantAvatarUrl,
       offers: await this.findOffers(userId, productId),
       messages,
     };
