@@ -28,12 +28,20 @@ export class MessagesGateway {
     this.server.to(`product:${productId}`).emit("offer.updated", offer);
   }
 
+  broadcastRentalOrder(event: string, order: object, userIds: string[]) {
+    const payload = this.serialize(order);
+    for (const userId of new Set(userIds.filter(Boolean))) {
+      this.server.to(this.userRoom(userId)).emit(event, payload);
+    }
+  }
+
   handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth?.token as string | undefined;
       if (!token) throw new Error("Missing token");
       const user = this.authService.verifyToken(token);
       client.data.userId = user.sub;
+      void client.join(this.userRoom(user.sub));
     } catch {
       client.disconnect(true);
     }
@@ -61,5 +69,13 @@ export class MessagesGateway {
 
   private room(productId: string) {
     return `product:${productId}`;
+  }
+
+  private userRoom(userId: string) {
+    return `user:${userId}`;
+  }
+
+  private serialize(value: any) {
+    return typeof value?.toObject === "function" ? value.toObject() : value;
   }
 }

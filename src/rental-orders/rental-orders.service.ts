@@ -10,6 +10,7 @@ import { Product, ProductDocument } from "../products/schemas/product.schema";
 import { S3StorageService } from "../storage/s3-storage.service";
 import { UsersService } from "../users/users.service";
 import { StripePaymentsService } from "../payments/stripe-payments.service";
+import { PushService } from "../push/push.service";
 import { CreateAvailabilityBlockDto } from "./dto/create-availability-block.dto";
 import { CreateRentalOrderDto } from "./dto/create-rental-order.dto";
 import { UpdateRentalScheduleDto } from "./dto/update-rental-schedule.dto";
@@ -43,6 +44,7 @@ export class RentalOrdersService {
     private readonly s3StorageService: S3StorageService,
     private readonly usersService: UsersService,
     private readonly stripePaymentsService: StripePaymentsService,
+    private readonly pushService: PushService,
   ) {}
 
   async create(
@@ -65,8 +67,13 @@ export class RentalOrdersService {
     const pickupTime = dto.pickupTime ?? product.pickupTime ?? "10:00";
     const returnTime = dto.returnTime ?? product.returnTime ?? "18:00";
     const rentalMode = dto.rentalMode ?? "day";
-    if (rentalMode === "month" && (!product.pricePerMonth || !product.rentalModes.includes("month"))) {
-      throw new BadRequestException("Produsul nu are inchiriere lunara configurata.");
+    if (
+      rentalMode === "month" &&
+      (!product.pricePerMonth || !product.rentalModes.includes("month"))
+    ) {
+      throw new BadRequestException(
+        "Produsul nu are inchiriere lunara configurata.",
+      );
     }
     const requestedStart =
       rentalMode === "hour"
@@ -253,8 +260,10 @@ export class RentalOrdersService {
     }
 
     order.status = status;
-    if (status === RentalOrderStatus.Completed &&
-        order.paymentStatus === RentalPaymentStatus.Captured) {
+    if (
+      status === RentalOrderStatus.Completed &&
+      order.paymentStatus === RentalPaymentStatus.Captured
+    ) {
       order.payoutEligibleAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       order.payoutStatus = RentalPayoutStatus.HeldUntilReturn;
     }
@@ -283,8 +292,34 @@ export class RentalOrdersService {
       throw new BadRequestException("Plata nu este autorizata in Stripe.");
     }
 
+    const wasCaptured = order.paymentStatus === RentalPaymentStatus.Captured;
     order.paymentStatus = RentalPaymentStatus.Captured;
-    return order.save();
+    const savedOrder = await order.save();
+
+    if (!wasCaptured) {
+      const product = await this.productModel
+        .findById(savedOrder.productId)
+        .select("ownerId title")
+        .lean()
+        .exec();
+      if (product?.ownerId && product.ownerId !== renterId) {
+        void this.pushService.sendRentalRequest(
+          product.ownerId,
+          savedOrder._id.toString(),
+          savedOrder.productId.toString(),
+          product.title,
+        );
+      }
+      void this.pushService.sendRentalRequest(
+        renterId,
+        savedOrder._id.toString(),
+        savedOrder.productId.toString(),
+        product?.title ?? savedOrder.productSnapshot.title,
+        "renting",
+      );
+    }
+
+    return savedOrder;
   }
 
   async acceptOrder(

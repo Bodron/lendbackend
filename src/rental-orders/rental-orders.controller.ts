@@ -11,6 +11,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
+import { MessagesGateway } from "../messages/messages.gateway";
 import { CreateAvailabilityBlockDto } from "./dto/create-availability-block.dto";
 import { CreateRentalOrderDto } from "./dto/create-rental-order.dto";
 import { UpdateRentalScheduleDto } from "./dto/update-rental-schedule.dto";
@@ -22,15 +23,20 @@ export class RentalOrdersController {
   constructor(
     private readonly rentalOrdersService: RentalOrdersService,
     private readonly authService: AuthService,
+    private readonly messagesGateway: MessagesGateway,
   ) {}
 
   @Post()
-  create(
+  async create(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: CreateRentalOrderDto,
   ) {
     const userId = this.getUserId(authorization);
-    return this.rentalOrdersService.create(userId, dto);
+    const order = await this.rentalOrdersService.create(userId, dto);
+    this.messagesGateway.broadcastRentalOrder("rental_order.created", order, [
+      order.renterId,
+    ]);
+    return order;
   }
 
   @Get("me")
@@ -81,22 +87,38 @@ export class RentalOrdersController {
   }
 
   @Patch(":orderId/status")
-  updateStatus(
+  async updateStatus(
     @Headers("authorization") authorization: string | undefined,
     @Param("orderId") orderId: string,
     @Body() dto: UpdateRentalOrderStatusDto,
   ) {
     this.getUserId(authorization);
-    return this.rentalOrdersService.updateStatus(orderId, dto.status);
+    const order = await this.rentalOrdersService.updateStatus(
+      orderId,
+      dto.status,
+    );
+    this.messagesGateway.broadcastRentalOrder(
+      "rental_order.status_changed",
+      order,
+      [order.renterId, this.getUserId(authorization)],
+    );
+    return order;
   }
 
   @Patch(":orderId/payment-authorized")
-  markPaymentAuthorized(
+  async markPaymentAuthorized(
     @Headers("authorization") authorization: string | undefined,
     @Param("orderId") orderId: string,
   ) {
     const userId = this.getUserId(authorization);
-    return this.rentalOrdersService.markPaymentAuthorized(userId, orderId);
+    const order = await this.rentalOrdersService.markPaymentAuthorized(
+      userId,
+      orderId,
+    );
+    this.messagesGateway.broadcastRentalOrder("rental_order.updated", order, [
+      order.renterId,
+    ]);
+    return order;
   }
 
   @Patch(":orderId/accept")
@@ -106,11 +128,17 @@ export class RentalOrdersController {
   ) {
     const userId = this.getUserId(authorization);
     const user = await this.authService.getProfile(userId);
-    return this.rentalOrdersService.acceptOrder(
+    const order = await this.rentalOrdersService.acceptOrder(
       user.id,
       user.fullName,
       orderId,
     );
+    this.messagesGateway.broadcastRentalOrder(
+      "rental_order.status_changed",
+      order,
+      [order.renterId, user.id],
+    );
+    return order;
   }
 
   @Patch(":orderId/reject")
@@ -120,11 +148,17 @@ export class RentalOrdersController {
   ) {
     const userId = this.getUserId(authorization);
     const user = await this.authService.getProfile(userId);
-    return this.rentalOrdersService.rejectOrder(
+    const order = await this.rentalOrdersService.rejectOrder(
       user.id,
       user.fullName,
       orderId,
     );
+    this.messagesGateway.broadcastRentalOrder(
+      "rental_order.status_changed",
+      order,
+      [order.renterId, user.id],
+    );
+    return order;
   }
 
   @Patch(":orderId/schedule")
@@ -135,12 +169,17 @@ export class RentalOrdersController {
   ) {
     const userId = this.getUserId(authorization);
     const user = await this.authService.getProfile(userId);
-    return this.rentalOrdersService.updateSchedule(
+    const order = await this.rentalOrdersService.updateSchedule(
       user.id,
       user.fullName,
       orderId,
       dto,
     );
+    this.messagesGateway.broadcastRentalOrder("rental_order.updated", order, [
+      order.renterId,
+      user.id,
+    ]);
+    return order;
   }
 
   private getUserId(authorization?: string): string {

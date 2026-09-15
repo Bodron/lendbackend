@@ -1,7 +1,9 @@
 import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import { AuthModule } from "../auth/auth.module";
+import { MessagesModule } from "../messages/messages.module";
 import { PaymentsModule } from "../payments/payments.module";
+import { PushModule } from "../push/push.module";
 import { Product, ProductSchema } from "../products/schemas/product.schema";
 import { StorageModule } from "../storage/storage.module";
 import { UsersModule } from "../users/users.module";
@@ -24,6 +26,8 @@ import { RentalOrder, RentalOrderSchema } from "./schemas/rental-order.schema";
     StorageModule,
     UsersModule,
     PaymentsModule,
+    MessagesModule,
+    PushModule,
   ],
   controllers: [RentalOrdersController],
   providers: [RentalOrdersService],
