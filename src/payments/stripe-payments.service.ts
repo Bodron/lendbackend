@@ -100,10 +100,7 @@ export class StripePaymentsService {
   }
 
   async createAccountLink(input: { accountId: string }) {
-    const baseUrl = this.configService.get<string>(
-      "APP_PUBLIC_URL",
-      "http://localhost:3000",
-    );
+    const baseUrl = this.getPublicBaseUrl();
 
     return this.getStripe().accountLinks.create({
       account: input.accountId,
@@ -111,6 +108,21 @@ export class StripePaymentsService {
       refresh_url: `${baseUrl}/stripe/connect/refresh`,
       return_url: `${baseUrl}/stripe/connect/return`,
     });
+  }
+
+  private getPublicBaseUrl(): string {
+    const configuredUrl =
+      this.configService.get<string>("APP_PUBLIC_URL") ??
+      this.configService.get<string>("APP_BASE_URL") ??
+      this.configService.get<string>("APP_BASE_URL_DEV");
+
+    if (!configuredUrl) {
+      throw new BadRequestException(
+        "Lipseste APP_PUBLIC_URL pentru linkurile Stripe Connect.",
+      );
+    }
+
+    return configuredUrl.trim().replace(/\/api\/?$/, "").replace(/\/$/, "");
   }
 
   async getAccount(accountId: string) {
