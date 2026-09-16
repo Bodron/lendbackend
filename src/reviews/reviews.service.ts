@@ -51,9 +51,7 @@ export class ReviewsService {
     }
 
     const completedAndPaidOrders = orders.filter(
-      (order) =>
-        order.status === RentalOrderStatus.Completed &&
-        order.paymentStatus === RentalPaymentStatus.Captured,
+      (order) => this.isReviewableCompletedOrder(order),
     );
     const reviewedOrderIds = new Set(
       (
@@ -104,7 +102,11 @@ export class ReviewsService {
         productId,
         renterId: reviewerId,
         status: RentalOrderStatus.Completed,
-        paymentStatus: RentalPaymentStatus.Captured,
+        $or: [
+          { paymentStatus: RentalPaymentStatus.Captured },
+          { paymentStatus: { $exists: false } },
+          { paymentStatus: null },
+        ],
       })
       .exec();
     if (!order)
@@ -135,5 +137,16 @@ export class ReviewsService {
       )
       .exec();
     return review;
+  }
+
+  private isReviewableCompletedOrder(order: {
+    status: RentalOrderStatus;
+    paymentStatus?: RentalPaymentStatus | null;
+  }) {
+    return (
+      order.status === RentalOrderStatus.Completed &&
+      (order.paymentStatus === RentalPaymentStatus.Captured ||
+        order.paymentStatus == null)
+    );
   }
 }
