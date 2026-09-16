@@ -10,13 +10,24 @@ import { ReviewsService } from "./reviews.service";
 describe("ReviewsService", () => {
   const productObjectId = new Types.ObjectId();
   const orderObjectId = new Types.ObjectId();
+  const reviewerObjectId = new Types.ObjectId();
   const productId = productObjectId.toString();
-  const reviewerId = "test-reviewer-id";
+  const reviewerId = reviewerObjectId.toString();
   const orderId = orderObjectId.toString();
+  const createdReviewObjectId = new Types.ObjectId();
   type TestOrder = {
     _id: Types.ObjectId;
     status: RentalOrderStatus;
     paymentStatus?: RentalPaymentStatus | null;
+  };
+  type TestReview = {
+    _id: Types.ObjectId;
+    productId: Types.ObjectId;
+    rentalOrderId: Types.ObjectId;
+    reviewerId: string;
+    rating: number;
+    comment: string;
+    toObject: () => Record<string, unknown>;
   };
 
   const makeOrder = (
@@ -38,11 +49,17 @@ describe("ReviewsService", () => {
     reviewedOrderIds = [],
     findOneOrder,
     reviewExists = false,
+    reviewer = {
+      _id: reviewerObjectId,
+      fullName: "Test Reviewer",
+      avatarUrl: "https://example.com/avatar.jpg",
+    },
   }: {
     orders?: TestOrder[];
     reviewedOrderIds?: string[];
     findOneOrder?: TestOrder | null;
     reviewExists?: boolean;
+    reviewer?: { _id: Types.ObjectId; fullName: string; avatarUrl?: string };
   } = {}) => {
     const rentalOrderModel = {
       find: jest.fn(() => ({
@@ -70,13 +87,25 @@ describe("ReviewsService", () => {
       })),
       exists: jest.fn<() => Promise<boolean>>().mockResolvedValue(reviewExists),
       create: jest
-        .fn<
-          (payload: Record<string, unknown>) => Promise<Record<string, unknown>>
-        >()
+        .fn<(payload: Record<string, unknown>) => Promise<TestReview>>()
         .mockImplementation((payload) =>
           Promise.resolve({
-            _id: new Types.ObjectId(),
-            ...payload,
+            _id: createdReviewObjectId,
+            productId: payload.productId as Types.ObjectId,
+            rentalOrderId: payload.rentalOrderId as Types.ObjectId,
+            reviewerId: payload.reviewerId as string,
+            rating: payload.rating as number,
+            comment: payload.comment as string,
+            toObject() {
+              return {
+                _id: this._id,
+                productId: this.productId,
+                rentalOrderId: this.rentalOrderId,
+                reviewerId: this.reviewerId,
+                rating: this.rating,
+                comment: this.comment,
+              };
+            },
           }),
         ),
       aggregate: jest
@@ -90,13 +119,25 @@ describe("ReviewsService", () => {
           .mockResolvedValue({ modifiedCount: 1 }),
       })),
     };
+    const userModel = {
+      find: jest.fn(() => ({
+        select: jest.fn(() => ({
+          lean: jest.fn(() => ({
+            exec: jest
+              .fn<() => Promise<(typeof reviewer)[]>>()
+              .mockResolvedValue([reviewer]),
+          })),
+        })),
+      })),
+    };
     const service = new ReviewsService(
       reviewModel as never,
       productModel as never,
       rentalOrderModel as never,
+      userModel as never,
     );
 
-    return { service, rentalOrderModel, reviewModel, productModel };
+    return { service, rentalOrderModel, reviewModel, productModel, userModel };
   };
 
   it("allows completed rentals with captured payment", async () => {
@@ -184,6 +225,11 @@ describe("ReviewsService", () => {
       reviewerId,
       rating: 5,
       comment: "Experienta foarte buna",
+      reviewer: {
+        id: reviewerId,
+        fullName: "Test Reviewer",
+        avatarUrl: "https://example.com/avatar.jpg",
+      },
     });
     expect(rentalOrderModel.findOne).toHaveBeenCalledWith({
       _id: orderId,

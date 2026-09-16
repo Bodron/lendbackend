@@ -13,6 +13,7 @@ import {
   RentalPaymentStatus,
 } from "../rental-orders/schemas/rental-order.schema";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
+import { User, UserDocument } from "../users/schemas/user.schema";
 import { CreateReviewDto } from "./dto/create-review.dto";
 import { Review, ReviewDocument } from "./schemas/review.schema";
 
@@ -25,16 +26,19 @@ export class ReviewsService {
     private readonly productModel: Model<ProductDocument>,
     @InjectModel(RentalOrder.name)
     private readonly rentalOrderModel: Model<RentalOrderDocument>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
   ) {}
 
   async findForProduct(productId: string) {
     if (!Types.ObjectId.isValid(productId))
       throw new NotFoundException("Anuntul nu a fost gasit.");
     const productObjectId = new Types.ObjectId(productId);
-    return this.reviewModel
+    const reviews = await this.reviewModel
       .find({ productId: productObjectId })
       .sort({ createdAt: -1 })
       .exec();
+    return this.withReviewers(reviews);
   }
 
   async getEligibility(reviewerId: string, productId: string) {
@@ -55,8 +59,8 @@ export class ReviewsService {
       };
     }
 
-    const completedAndPaidOrders = orders.filter(
-      (order) => this.isReviewableCompletedOrder(order),
+    const completedAndPaidOrders = orders.filter((order) =>
+      this.isReviewableCompletedOrder(order),
     );
     const reviewedOrderIds = new Set(
       (
@@ -142,7 +146,35 @@ export class ReviewsService {
         { $set: { rating: Math.round((stats[0]?.average ?? 0) * 10) / 10 } },
       )
       .exec();
-    return review;
+    return (await this.withReviewers([review]))[0];
+  }
+
+  private async withReviewers(reviews: ReviewDocument[]) {
+    const reviewerIds = [
+      ...new Set(reviews.map((review) => review.reviewerId)),
+    ];
+    const users = await this.userModel
+      .find({
+        _id: { $in: reviewerIds.filter((id) => Types.ObjectId.isValid(id)) },
+      })
+      .select("fullName avatarUrl")
+      .lean()
+      .exec();
+    const usersById = new Map(users.map((user) => [user._id.toString(), user]));
+
+    return reviews.map((review) => {
+      const reviewer = usersById.get(review.reviewerId);
+      return {
+        ...review.toObject(),
+        reviewer: reviewer
+          ? {
+              id: reviewer._id.toString(),
+              fullName: reviewer.fullName,
+              avatarUrl: reviewer.avatarUrl,
+            }
+          : undefined,
+      };
+    });
   }
 
   private isReviewableCompletedOrder(order: {
