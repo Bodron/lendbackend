@@ -100,7 +100,7 @@ describe("ReviewsService", () => {
   };
 
   it("allows completed rentals with captured payment", async () => {
-    const { service } = makeService({
+    const { service, rentalOrderModel } = makeService({
       orders: [makeOrder({ paymentStatus: RentalPaymentStatus.Captured })],
     });
 
@@ -109,6 +109,10 @@ describe("ReviewsService", () => {
     ).resolves.toEqual({
       canReview: true,
       rentalOrderId: orderId,
+    });
+    expect(rentalOrderModel.find).toHaveBeenCalledWith({
+      productId: productObjectId,
+      renterId: reviewerId,
     });
   });
 
@@ -175,7 +179,7 @@ describe("ReviewsService", () => {
         comment: "Experienta foarte buna",
       }),
     ).resolves.toMatchObject({
-      productId,
+      productId: productObjectId,
       rentalOrderId: order._id,
       reviewerId,
       rating: 5,
@@ -183,7 +187,7 @@ describe("ReviewsService", () => {
     });
     expect(rentalOrderModel.findOne).toHaveBeenCalledWith({
       _id: orderId,
-      productId,
+      productId: productObjectId,
       renterId: reviewerId,
       status: RentalOrderStatus.Completed,
       $or: [

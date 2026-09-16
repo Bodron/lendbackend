@@ -30,16 +30,21 @@ export class ReviewsService {
   async findForProduct(productId: string) {
     if (!Types.ObjectId.isValid(productId))
       throw new NotFoundException("Anuntul nu a fost gasit.");
-    return this.reviewModel.find({ productId }).sort({ createdAt: -1 }).exec();
+    const productObjectId = new Types.ObjectId(productId);
+    return this.reviewModel
+      .find({ productId: productObjectId })
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
   async getEligibility(reviewerId: string, productId: string) {
     if (!Types.ObjectId.isValid(productId)) {
       throw new NotFoundException("Anuntul nu a fost gasit.");
     }
+    const productObjectId = new Types.ObjectId(productId);
 
     const orders = await this.rentalOrderModel
-      .find({ productId, renterId: reviewerId })
+      .find({ productId: productObjectId, renterId: reviewerId })
       .sort({ endDate: -1, createdAt: -1 })
       .exec();
 
@@ -96,10 +101,11 @@ export class ReviewsService {
         eligibility.message ?? "Nu poti evalua acest anunt.",
       );
     }
+    const productObjectId = new Types.ObjectId(productId);
     const order = await this.rentalOrderModel
       .findOne({
         _id: eligibility.rentalOrderId,
-        productId,
+        productId: productObjectId,
         renterId: reviewerId,
         status: RentalOrderStatus.Completed,
         $or: [
@@ -120,19 +126,19 @@ export class ReviewsService {
     }
 
     const review = await this.reviewModel.create({
-      productId,
+      productId: productObjectId,
       rentalOrderId: order._id,
       reviewerId,
       rating: dto.rating,
       comment: dto.comment.trim(),
     });
     const stats = await this.reviewModel.aggregate([
-      { $match: { productId: new Types.ObjectId(productId) } },
+      { $match: { productId: productObjectId } },
       { $group: { _id: null, average: { $avg: "$rating" } } },
     ]);
     await this.productModel
       .updateOne(
-        { _id: productId },
+        { _id: productObjectId },
         { $set: { rating: Math.round((stats[0]?.average ?? 0) * 10) / 10 } },
       )
       .exec();
