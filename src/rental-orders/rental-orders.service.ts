@@ -7,6 +7,7 @@ import {
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
+import { ProductAvailabilityScope } from "../products/schemas/product.schema";
 import { S3StorageService } from "../storage/s3-storage.service";
 import { UsersService } from "../users/users.service";
 import { StripePaymentsService } from "../payments/stripe-payments.service";
@@ -34,6 +35,7 @@ const blockingStatuses = [
 @Injectable()
 export class RentalOrdersService {
   private static readonly HOURLY_TURNAROUND_BUFFER_MINUTES = 60;
+  private static readonly LOCAL_RENTAL_RADIUS_KM = 50;
   constructor(
     @InjectModel(RentalOrder.name)
     private readonly rentalOrderModel: Model<RentalOrderDocument>,
@@ -62,6 +64,8 @@ export class RentalOrdersService {
         "Produsul nu este disponibil pentru inchiriere.",
       );
     }
+
+    await this.assertRenterCanRentProduct(renterId, product, dto);
 
     const range = this.parseDateRange(dto.startDate, dto.endDate);
     const pickupTime = dto.pickupTime ?? product.pickupTime ?? "10:00";
@@ -626,6 +630,46 @@ export class RentalOrdersService {
     return product;
   }
 
+  private async assertRenterCanRentProduct(
+    renterId: string,
+    product: ProductDocument,
+    dto: CreateRentalOrderDto,
+  ): Promise<void> {
+    if (product.availabilityScope === ProductAvailabilityScope.National) {
+      return;
+    }
+
+    if (
+      dto.renterLatitude !== undefined &&
+      dto.renterLongitude !== undefined &&
+      product.latitude !== undefined &&
+      product.longitude !== undefined
+    ) {
+      const distanceKm = this.distanceKm(
+        dto.renterLatitude,
+        dto.renterLongitude,
+        product.latitude,
+        product.longitude,
+      );
+
+      if (distanceKm <= RentalOrdersService.LOCAL_RENTAL_RADIUS_KM) {
+        return;
+      }
+    }
+
+    const renter = await this.usersService.findById(renterId);
+    if (
+      renter?.city &&
+      this.normalizeCity(renter.city) === this.normalizeCity(product.city)
+    ) {
+      return;
+    }
+
+    throw new BadRequestException(
+      "Acest anunt este disponibil doar pentru utilizatori din orasul sau zona produsului. Activeaza locatia sau completeaza orasul in profil.",
+    );
+  }
+
   private async hydrateOrderMedia(order: RentalOrderDocument): Promise<void> {
     let imageKey = order.productSnapshot.imageKey;
     let product: ProductDocument | null = null;
@@ -739,5 +783,39 @@ export class RentalOrdersService {
 
   private toDateKey(date: Date): string {
     return date.toISOString().slice(0, 10);
+  }
+
+  private distanceKm(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+  ): number {
+    const earthRadiusKm = 6371;
+    const dLat = this.toRadians(lat2 - lat1);
+    const dLng = this.toRadians(lng2 - lng1);
+    const startLat = this.toRadians(lat1);
+    const endLat = this.toRadians(lat2);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(startLat) *
+        Math.cos(endLat) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+
+    return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  private toRadians(value: number): number {
+    return (value * Math.PI) / 180;
+  }
+
+  private normalizeCity(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "");
   }
 }

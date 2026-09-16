@@ -14,6 +14,11 @@ export type ProductMedia = ProductImage & {
   type: "image" | "video";
 };
 
+export enum ProductAvailabilityScope {
+  Local = "local",
+  National = "national",
+}
+
 @Schema({ timestamps: true })
 export class Product {
   @Prop({ trim: true, index: true })
@@ -46,13 +51,34 @@ export class Product {
   @Prop({ required: true, trim: true })
   city!: string;
 
+  @Prop({ required: true, trim: true, default: "" })
+  address!: string;
+
+  @Prop()
+  latitude?: number;
+
+  @Prop()
+  longitude?: number;
+
+  @Prop({
+    required: true,
+    enum: Object.values(ProductAvailabilityScope),
+    default: ProductAvailabilityScope.Local,
+    index: true,
+  })
+  availabilityScope!: ProductAvailabilityScope;
+
   @Prop({ required: true, trim: true, default: "10:00" })
   pickupTime!: string;
 
   @Prop({ required: true, trim: true, default: "18:00" })
   returnTime!: string;
 
-  @Prop({ type: [String], enum: ["hour", "day", "month"], default: ["hour", "day"] })
+  @Prop({
+    type: [String],
+    enum: ["hour", "day", "month"],
+    default: ["hour", "day"],
+  })
   rentalModes!: ("hour" | "day" | "month")[];
 
   @Prop({ required: true, trim: true })

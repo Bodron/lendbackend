@@ -26,6 +26,15 @@ export class User {
   @Prop({ trim: true })
   avatarUrl?: string;
 
+  @Prop({ trim: true, index: true })
+  city?: string;
+
+  @Prop()
+  latitude?: number;
+
+  @Prop()
+  longitude?: number;
+
   @Prop()
   deletionRequestedAt?: Date;
 

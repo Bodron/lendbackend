@@ -4,6 +4,7 @@ import {
   IsInt,
   IsMongoId,
   Min,
+  IsNumber,
   IsOptional,
   IsString,
   Matches,
@@ -37,4 +38,12 @@ export class CreateRentalOrderDto {
   @IsInt()
   @Min(1)
   negotiatedSubtotal?: number;
+
+  @IsOptional()
+  @IsNumber()
+  renterLatitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  renterLongitude?: number;
 }

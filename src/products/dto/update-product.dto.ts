@@ -2,6 +2,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsInt,
+  IsNumber,
   Matches,
   IsOptional,
   IsIn,
@@ -51,6 +52,22 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   city?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @IsIn(["local", "national"])
+  availabilityScope?: "local" | "national";
 
   @IsOptional()
   @IsString()

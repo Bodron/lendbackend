@@ -2,6 +2,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsInt,
+  IsNumber,
   Matches,
   IsNotEmpty,
   IsIn,
@@ -50,6 +51,22 @@ export class CreateProductDto {
   @IsString()
   @IsNotEmpty()
   city!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  address!: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @IsIn(["local", "national"])
+  availabilityScope?: "local" | "national";
 
   @IsOptional()
   @IsString()

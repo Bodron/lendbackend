@@ -64,10 +64,35 @@ export class StripePaymentsService {
     return this.getStripe().paymentIntents.cancel(paymentIntentId);
   }
 
-  async createExpressAccount(input: { email: string }) {
+  async createExpressAccount(input: {
+    email: string;
+    fullName: string;
+    phone: string;
+    city?: string;
+    businessType: "individual" | "company";
+  }) {
+    const nameParts = input.fullName.trim().split(/\s+/);
+    const firstName = nameParts.shift() ?? input.fullName;
+    const lastName = nameParts.join(" ") || firstName;
+
     return this.getStripe().accounts.create({
       type: "express",
       email: input.email,
+      country: "RO",
+      business_type: input.businessType,
+      ...(input.businessType === "individual"
+        ? {
+            individual: {
+              first_name: firstName,
+              last_name: lastName,
+              email: input.email,
+              phone: input.phone,
+              ...(input.city
+                ? { address: { city: input.city, country: "RO" } }
+                : {}),
+            },
+          }
+        : { company: { phone: input.phone } }),
       capabilities: {
         transfers: { requested: true },
       },

@@ -10,6 +10,9 @@ export type SafeUser = {
   phone: string;
   avatarUrl?: string;
   avatarKey?: string;
+  city?: string;
+  latitude?: number;
+  longitude?: number;
   stripeAccountId?: string;
   stripePayoutsEnabled?: boolean;
   stripeDetailsSubmitted?: boolean;
@@ -98,15 +101,38 @@ export class UsersService {
     return user ? this.toSafeUser(user) : null;
   }
 
+  async updateLocation(input: {
+    userId: string;
+    city: string;
+    latitude?: number;
+    longitude?: number;
+  }): Promise<SafeUser | null> {
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        input.userId,
+        {
+          city: input.city.trim(),
+          latitude: input.latitude,
+          longitude: input.longitude,
+        },
+        { new: true },
+      )
+      .exec();
+
+    return user ? this.toSafeUser(user) : null;
+  }
+
   async requestAccountDeletion(userId: string) {
-    const user = await this.userModel.findByIdAndUpdate(
-      userId,
-      {
-        deletionRequestedAt: new Date(),
-        deletionRequestStatus: "pending",
-      },
-      { new: true },
-    ).exec();
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        userId,
+        {
+          deletionRequestedAt: new Date(),
+          deletionRequestStatus: "pending",
+        },
+        { new: true },
+      )
+      .exec();
 
     if (!user) return null;
     return {
@@ -188,6 +214,9 @@ export class UsersService {
       phone: user.phone,
       avatarUrl: user.avatarUrl,
       avatarKey: user.avatarKey,
+      city: user.city,
+      latitude: user.latitude,
+      longitude: user.longitude,
       stripeAccountId: user.stripeAccountId,
       stripePayoutsEnabled: user.stripePayoutsEnabled,
       stripeDetailsSubmitted: user.stripeDetailsSubmitted,

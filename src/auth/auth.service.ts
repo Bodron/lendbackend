@@ -14,6 +14,7 @@ import { GoogleLoginDto } from "./dto/google-login.dto";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
 import { UpdateAvatarDto } from "./dto/update-avatar.dto";
+import { UpdateLocationDto } from "./dto/update-location.dto";
 
 type AuthResponse = {
   accessToken: string;
@@ -197,6 +198,24 @@ export class AuthService {
     return this.withReadableAvatar(user);
   }
 
+  async updateLocation(
+    userId: string,
+    updateLocationDto: UpdateLocationDto,
+  ): Promise<SafeUser> {
+    const user = await this.usersService.updateLocation({
+      userId,
+      city: updateLocationDto.city,
+      latitude: updateLocationDto.latitude,
+      longitude: updateLocationDto.longitude,
+    });
+
+    if (!user) {
+      throw new UnauthorizedException("Token invalid.");
+    }
+
+    return this.withReadableAvatar(user);
+  }
+
   async requestAccountDeletion(userId: string) {
     const result = await this.usersService.requestAccountDeletion(userId);
     if (!result) throw new UnauthorizedException("Token invalid.");
@@ -329,7 +348,10 @@ export class AuthService {
     return clientIds;
   }
 
-  private appleDisplayName(fullName: string | undefined, email: string): string {
+  private appleDisplayName(
+    fullName: string | undefined,
+    email: string,
+  ): string {
     const trimmedName = fullName?.trim();
     if (trimmedName) {
       return trimmedName;

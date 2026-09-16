@@ -64,6 +64,22 @@ export const mockCategories: MockCategory[] = [
     sortOrder: 70,
   },
   {
+    name: "Masini",
+    slug: "masini",
+    description:
+      "Autoturisme si vehicule disponibile pentru inchiriere locala sau nationala.",
+    iconName: "directions_car",
+    sortOrder: 75,
+  },
+  {
+    name: "Imobiliare",
+    slug: "imobiliare",
+    description:
+      "Apartamente, case si spatii care pot fi descoperite din orice oras.",
+    iconName: "apartment",
+    sortOrder: 76,
+  },
+  {
     name: "Evenimente",
     slug: "evenimente",
     description:

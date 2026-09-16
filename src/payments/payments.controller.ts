@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Headers,
@@ -19,6 +20,7 @@ import {
 } from "../rental-orders/schemas/rental-order.schema";
 import { UsersService } from "../users/users.service";
 import { StripePaymentsService } from "./stripe-payments.service";
+import { RequestPayoutDto } from "./dto/request-payout.dto";
 
 @Controller("payments")
 export class PaymentsController {
@@ -79,6 +81,10 @@ export class PaymentsController {
     if (!accountId) {
       const account = await this.stripePaymentsService.createExpressAccount({
         email: user.email,
+        fullName: user.fullName,
+        phone: user.phone,
+        city: user.city,
+        businessType: "individual",
       });
       accountId = account.id;
       await this.usersService.updateStripeAccount({
@@ -97,6 +103,7 @@ export class PaymentsController {
   @Post("payouts/request")
   async requestPayout(
     @Headers("authorization") authorization: string | undefined,
+    @Body() requestPayoutDto: RequestPayoutDto,
   ) {
     const userId = this.getUserId(authorization);
     const user = await this.authService.getProfile(userId);
@@ -105,6 +112,10 @@ export class PaymentsController {
     if (!accountId) {
       const account = await this.stripePaymentsService.createExpressAccount({
         email: user.email,
+        fullName: user.fullName,
+        phone: user.phone,
+        city: user.city,
+        businessType: requestPayoutDto.businessType ?? "individual",
       });
       accountId = account.id;
       await this.usersService.updateStripeAccount({

@@ -13,6 +13,7 @@ import { UpdateProductDto } from "./dto/update-product.dto";
 import { mockProducts } from "./mock-products";
 import {
   Product,
+  ProductAvailabilityScope,
   ProductDocument,
   type ProductImage,
 } from "./schemas/product.schema";
@@ -81,6 +82,12 @@ export class ProductsService {
       pricePerMonth: dto.pricePerMonth,
       deposit: dto.deposit,
       city: dto.city,
+      address: dto.address,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      availabilityScope:
+        dto.availabilityScope ??
+        this.defaultAvailabilityScope(dto.categorySlug),
       pickupTime: dto.pickupTime ?? "10:00",
       returnTime: dto.returnTime ?? "18:00",
       rentalModes: dto.rentalModes?.length ? dto.rentalModes : ["hour", "day"],
@@ -125,9 +132,19 @@ export class ProductsService {
     if (dto.categorySlug !== undefined) product.categorySlug = dto.categorySlug;
     if (dto.description !== undefined) product.description = dto.description;
     if (dto.pricePerDay !== undefined) product.pricePerDay = dto.pricePerDay;
-    if (dto.pricePerMonth !== undefined) product.pricePerMonth = dto.pricePerMonth;
+    if (dto.pricePerMonth !== undefined)
+      product.pricePerMonth = dto.pricePerMonth;
     if (dto.deposit !== undefined) product.deposit = dto.deposit;
     if (dto.city !== undefined) product.city = dto.city;
+    if (dto.address !== undefined) product.address = dto.address;
+    if (dto.latitude !== undefined) product.latitude = dto.latitude;
+    if (dto.longitude !== undefined) product.longitude = dto.longitude;
+    if (dto.availabilityScope !== undefined) {
+      product.availabilityScope =
+        dto.availabilityScope === ProductAvailabilityScope.National
+          ? ProductAvailabilityScope.National
+          : ProductAvailabilityScope.Local;
+    }
     if (dto.pickupTime !== undefined) product.pickupTime = dto.pickupTime;
     if (dto.returnTime !== undefined) product.returnTime = dto.returnTime;
     if (dto.media !== undefined) product.images = dto.media;
@@ -166,6 +183,10 @@ export class ProductsService {
               pricePerDay: product.pricePerDay,
               deposit: product.deposit,
               city: product.city,
+              address: "",
+              availabilityScope: this.defaultAvailabilityScope(
+                product.categorySlug,
+              ),
               pickupTime: product.pickupTime ?? "10:00",
               returnTime: product.returnTime ?? "18:00",
               rentalModes: product.rentalModes ?? ["hour", "day"],
@@ -196,10 +217,7 @@ export class ProductsService {
       ? await this.s3StorageService.getReadableUrl(owner.avatarKey)
       : owner?.avatarUrl;
     const ownerProductIds = owner
-      ? await this.productModel
-          .find({ ownerId: owner.id })
-          .select("_id")
-          .exec()
+      ? await this.productModel.find({ ownerId: owner.id }).select("_id").exec()
       : [{ _id: product._id }];
     const ownerRentalCount = await this.rentalOrderModel.countDocuments({
       productId: { $in: ownerProductIds.map((item) => item._id) },
@@ -260,5 +278,19 @@ export class ProductsService {
         .replace(/^-+|-+$/g, "")
         .slice(0, 80) || "produs"
     );
+  }
+
+  private defaultAvailabilityScope(categorySlug: string) {
+    const nationalCategories = new Set([
+      "imobiliare",
+      "real-estate",
+      "masini",
+      "auto",
+      "cars",
+    ]);
+
+    return nationalCategories.has(categorySlug)
+      ? ProductAvailabilityScope.National
+      : ProductAvailabilityScope.Local;
   }
 }

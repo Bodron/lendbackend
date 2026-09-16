@@ -13,6 +13,7 @@ import { GoogleLoginDto } from "./dto/google-login.dto";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
 import { UpdateAvatarDto } from "./dto/update-avatar.dto";
+import { UpdateLocationDto } from "./dto/update-location.dto";
 
 @Controller("auth")
 export class AuthController {
@@ -53,6 +54,16 @@ export class AuthController {
     const token = this.extractBearerToken(authorization);
     const payload = this.authService.verifyToken(token);
     return this.authService.updateAvatar(payload.sub, updateAvatarDto);
+  }
+
+  @Patch("me/location")
+  updateLocation(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() updateLocationDto: UpdateLocationDto,
+  ) {
+    const token = this.extractBearerToken(authorization);
+    const payload = this.authService.verifyToken(token);
+    return this.authService.updateLocation(payload.sub, updateLocationDto);
   }
 
   @Post("me/deletion-request")
