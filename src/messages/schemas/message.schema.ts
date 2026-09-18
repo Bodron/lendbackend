@@ -8,6 +8,9 @@ export class Message {
   @Prop({ type: Types.ObjectId, required: true, ref: "Product", index: true })
   productId!: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: "RoommateInterest", index: true })
+  roommateInterestId?: Types.ObjectId;
+
   @Prop({ required: true, index: true })
   senderId!: string;
 
@@ -23,3 +26,4 @@ export class Message {
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
 MessageSchema.index({ productId: 1, createdAt: 1 });
+MessageSchema.index({ productId: 1, roommateInterestId: 1, createdAt: 1 });

@@ -45,4 +45,4 @@ export class RoommateInterest {
 
 export const RoommateInterestSchema =
   SchemaFactory.createForClass(RoommateInterest);
-RoommateInterestSchema.index({ postId: 1, senderId: 1 }, { unique: true });
+RoommateInterestSchema.index({ postId: 1, senderId: 1 });

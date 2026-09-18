@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { FilterQuery, Model, Types } from "mongoose";
@@ -23,7 +24,7 @@ import {
 } from "./schemas/roommate-post.schema";
 
 @Injectable()
-export class RoommatePostsService {
+export class RoommatePostsService implements OnModuleInit {
   constructor(
     @InjectModel(RoommatePost.name)
     private readonly postModel: Model<RoommatePostDocument>,
@@ -35,6 +36,14 @@ export class RoommatePostsService {
     private readonly usersService: UsersService,
     private readonly s3StorageService: S3StorageService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.interestModel.collection.dropIndex("postId_1_senderId_1");
+    } catch {
+      // Older deployments may not have the legacy unique index.
+    }
+  }
 
   async findAll(filters: RoommatePostFilters = {}) {
     const query: FilterQuery<RoommatePostDocument> = {
@@ -180,6 +189,7 @@ export class RoommatePostsService {
             productId,
             dto.message?.trim() ||
               `Salut! Sunt interesat de anuntul tau de coleg: ${post.title}`,
+            interest._id.toString(),
           )
         : null;
 

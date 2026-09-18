@@ -32,9 +32,16 @@ export class MessagesService {
     private readonly offerModel: Model<RentalOfferDocument>,
   ) {}
 
-  async findForProduct(userId: string, productId: string) {
+  async findForProduct(
+    userId: string,
+    productId: string,
+    roommateInterestId?: string,
+  ) {
     if (!Types.ObjectId.isValid(productId)) {
       throw new NotFoundException("Anuntul nu a fost gasit.");
+    }
+    if (roommateInterestId && !Types.ObjectId.isValid(roommateInterestId)) {
+      throw new NotFoundException("Conversatia nu a fost gasita.");
     }
 
     const product = await this.productModel
@@ -48,6 +55,7 @@ export class MessagesService {
     const messages = await this.messageModel
       .find({
         productId: product._id,
+        ...this.threadScope(roommateInterestId),
         $or: [{ senderId: userId }, { recipientId: userId }],
       })
       .sort({ createdAt: 1 })
@@ -55,7 +63,12 @@ export class MessagesService {
 
     await this.messageModel
       .updateMany(
-        { productId: product._id, recipientId: userId, read: false },
+        {
+          productId: product._id,
+          recipientId: userId,
+          read: false,
+          ...this.threadScope(roommateInterestId),
+        },
         { $set: { read: true } },
       )
       .exec();
@@ -78,6 +91,7 @@ export class MessagesService {
 
     return {
       productId,
+      roommateInterestId: roommateInterestId ?? null,
       productTitle: product.title,
       ownerId: product.ownerId,
       ownerName: product.ownerName,
@@ -153,21 +167,33 @@ export class MessagesService {
   }
 
   async findThreads(userId: string) {
-    const productIds = await this.messageModel.distinct("productId", {
-      $or: [{ senderId: userId }, { recipientId: userId }],
-    });
+    const messages = await this.messageModel
+      .find({ $or: [{ senderId: userId }, { recipientId: userId }] })
+      .sort({ createdAt: -1 })
+      .exec();
+    const latestByThread = new Map<string, MessageDocument>();
+
+    for (const message of messages) {
+      const key = this.threadKey(
+        message.productId.toString(),
+        message.roommateInterestId?.toString(),
+      );
+      if (!latestByThread.has(key)) {
+        latestByThread.set(key, message);
+      }
+    }
 
     return Promise.all(
-      productIds.map(async (productId: Types.ObjectId) => {
-        const [latest, unread, product] = await Promise.all([
-          this.messageModel
-            .findOne({ productId })
-            .sort({ createdAt: -1 })
-            .exec(),
+      [...latestByThread.values()].map(async (latest) => {
+        const productId = latest.productId;
+        const roommateInterestId = latest.roommateInterestId?.toString();
+        const scope = this.threadScope(roommateInterestId);
+        const [unread, product] = await Promise.all([
           this.messageModel.countDocuments({
             productId,
             recipientId: userId,
             read: false,
+            ...scope,
           }),
           this.productModel
             .findById(productId)
@@ -190,6 +216,7 @@ export class MessagesService {
           : participant?.avatarUrl;
         return {
           productId: productId.toString(),
+          roommateInterestId: roommateInterestId ?? null,
           productTitle: product?.title ?? "Anunt",
           ownerName: product?.ownerName ?? "Proprietar",
           participantName:
@@ -215,6 +242,7 @@ export class MessagesService {
       const previousMessage = await this.messageModel
         .findOne({
           productId: product._id,
+          ...this.threadScope(dto.roommateInterestId),
           $or: [{ senderId: userId }, { recipientId: userId }],
         })
         .sort({ createdAt: -1 })
@@ -235,6 +263,9 @@ export class MessagesService {
 
     const message = await this.messageModel.create({
       productId: product._id,
+      ...(dto.roommateInterestId
+        ? { roommateInterestId: new Types.ObjectId(dto.roommateInterestId) }
+        : {}),
       senderId: userId,
       recipientId,
       body: dto.body.trim(),
@@ -253,6 +284,7 @@ export class MessagesService {
     recipientId: string,
     productId: string,
     body: string,
+    roommateInterestId?: string,
   ) {
     if (!Types.ObjectId.isValid(productId)) {
       throw new NotFoundException("Anuntul nu a fost gasit.");
@@ -268,6 +300,9 @@ export class MessagesService {
 
     const message = await this.messageModel.create({
       productId: product._id,
+      ...(roommateInterestId
+        ? { roommateInterestId: new Types.ObjectId(roommateInterestId) }
+        : {}),
       senderId,
       recipientId,
       body: body.trim(),
@@ -279,5 +314,15 @@ export class MessagesService {
       product.title,
     );
     return message;
+  }
+
+  private threadScope(roommateInterestId?: string) {
+    return roommateInterestId
+      ? { roommateInterestId: new Types.ObjectId(roommateInterestId) }
+      : { roommateInterestId: { $exists: false } };
+  }
+
+  private threadKey(productId: string, roommateInterestId?: string) {
+    return `${productId}:${roommateInterestId ?? ""}`;
   }
 }
