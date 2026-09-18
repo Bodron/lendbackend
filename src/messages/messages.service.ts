@@ -98,7 +98,9 @@ export class MessagesService {
       participantName:
         participant?.fullName ?? product.ownerName ?? "Utilizator",
       participantAvatarUrl,
-      offers: await this.findOffers(userId, productId),
+      offers: roommateInterestId
+        ? []
+        : await this.findOffers(userId, productId),
       messages,
     };
   }
