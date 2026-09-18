@@ -12,6 +12,7 @@ import { S3StorageService } from "../storage/s3-storage.service";
 import { UsersService } from "../users/users.service";
 import { StripePaymentsService } from "../payments/stripe-payments.service";
 import { PushService } from "../push/push.service";
+import { AttachRentalContractDto } from "./dto/attach-rental-contract.dto";
 import { CreateAvailabilityBlockDto } from "./dto/create-availability-block.dto";
 import { CreateRentalOrderDto } from "./dto/create-rental-order.dto";
 import { UpdateRentalScheduleDto } from "./dto/update-rental-schedule.dto";
@@ -193,6 +194,7 @@ export class RentalOrdersService {
       .exec();
 
     await Promise.all(orders.map((order) => this.hydrateOrderMedia(order)));
+    await Promise.all(orders.map((order) => this.hydrateContractUrl(order)));
 
     return orders;
   }
@@ -214,6 +216,7 @@ export class RentalOrdersService {
       .exec();
 
     await Promise.all(orders.map((order) => this.hydrateOrderMedia(order)));
+    await Promise.all(orders.map((order) => this.hydrateContractUrl(order)));
 
     return Promise.all(
       orders.map(async (order) => {
@@ -324,6 +327,29 @@ export class RentalOrdersService {
     }
 
     return savedOrder;
+  }
+
+  async attachSignedContract(
+    renterId: string,
+    orderId: string,
+    dto: AttachRentalContractDto,
+  ): Promise<RentalOrderDocument> {
+    const order = await this.findOrderOrFail(orderId);
+
+    if (order.renterId !== renterId) {
+      throw new NotFoundException("Comanda nu a fost gasita.");
+    }
+
+    if (!dto.key.startsWith(`uploads/${renterId}/documents/`)) {
+      throw new BadRequestException("Contractul incarcat nu este valid.");
+    }
+
+    order.contractPdfKey = dto.key;
+    order.contractPdfUrl = dto.url;
+    order.contractPdfContentType = dto.contentType ?? "application/pdf";
+    order.contractSignedAt = new Date();
+
+    return this.hydrateContractUrl(await order.save());
   }
 
   async acceptOrder(
@@ -694,6 +720,18 @@ export class RentalOrdersService {
       order.productSnapshot.imageContentType = image?.contentType;
       order.productSnapshot.imageType = image?.type;
     }
+  }
+
+  private async hydrateContractUrl(
+    order: RentalOrderDocument,
+  ): Promise<RentalOrderDocument> {
+    if (order.contractPdfKey) {
+      order.contractPdfUrl = await this.s3StorageService.getReadableUrl(
+        order.contractPdfKey,
+      );
+    }
+
+    return order;
   }
 
   private parseDateRange(

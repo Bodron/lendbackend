@@ -142,6 +142,18 @@ export class RentalOrder {
   @Prop({ trim: true, default: "none" })
   disputeStatus!: string;
 
+  @Prop({ trim: true })
+  contractPdfKey?: string;
+
+  @Prop({ trim: true })
+  contractPdfUrl?: string;
+
+  @Prop({ trim: true })
+  contractPdfContentType?: string;
+
+  @Prop()
+  contractSignedAt?: Date;
+
   @Prop({
     required: true,
     enum: Object.values(RentalPaymentStatus),

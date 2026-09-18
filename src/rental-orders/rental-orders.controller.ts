@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import { MessagesGateway } from "../messages/messages.gateway";
+import { AttachRentalContractDto } from "./dto/attach-rental-contract.dto";
 import { CreateAvailabilityBlockDto } from "./dto/create-availability-block.dto";
 import { CreateRentalOrderDto } from "./dto/create-rental-order.dto";
 import { UpdateRentalScheduleDto } from "./dto/update-rental-schedule.dto";
@@ -114,6 +115,24 @@ export class RentalOrdersController {
     const order = await this.rentalOrdersService.markPaymentAuthorized(
       userId,
       orderId,
+    );
+    this.messagesGateway.broadcastRentalOrder("rental_order.updated", order, [
+      order.renterId,
+    ]);
+    return order;
+  }
+
+  @Patch(":orderId/contract")
+  async attachSignedContract(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("orderId") orderId: string,
+    @Body() dto: AttachRentalContractDto,
+  ) {
+    const userId = this.getUserId(authorization);
+    const order = await this.rentalOrdersService.attachSignedContract(
+      userId,
+      orderId,
+      dto,
     );
     this.messagesGateway.broadcastRentalOrder("rental_order.updated", order, [
       order.renterId,

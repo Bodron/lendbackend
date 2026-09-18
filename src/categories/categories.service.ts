@@ -1,11 +1,11 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, OnModuleInit } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { mockCategories } from "./mock-categories";
 import { Category, CategoryDocument } from "./schemas/category.schema";
 
 @Injectable()
-export class CategoriesService {
+export class CategoriesService implements OnModuleInit {
   constructor(
     @InjectModel(Category.name)
     private readonly categoryModel: Model<CategoryDocument>,
@@ -16,6 +16,10 @@ export class CategoriesService {
       .find({ isActive: true })
       .sort({ sortOrder: 1, name: 1 })
       .exec();
+  }
+
+  async onModuleInit() {
+    await this.ensureDefaultCategories();
   }
 
   async seedMockCategories(): Promise<CategoryDocument[]> {
@@ -43,5 +47,26 @@ export class CategoriesService {
     }
 
     return categories;
+  }
+
+  private async ensureDefaultCategories(): Promise<void> {
+    for (const category of mockCategories) {
+      await this.categoryModel
+        .findOneAndUpdate(
+          { slug: category.slug },
+          {
+            $setOnInsert: {
+              name: category.name,
+              slug: category.slug,
+              description: category.description,
+              iconName: category.iconName,
+              sortOrder: category.sortOrder,
+              isActive: true,
+            },
+          },
+          { upsert: true, setDefaultsOnInsert: true },
+        )
+        .exec();
+    }
   }
 }

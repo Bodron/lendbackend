@@ -113,7 +113,9 @@ export class S3StorageService {
 
     const mediaType = input.contentType.startsWith("video/")
       ? "videos"
-      : "images";
+      : input.contentType === "application/pdf"
+        ? "documents"
+        : "images";
     const extension = this.extensionFor(input.contentType, input.fileName);
     const safeFileName = this.safeFileName(input.fileName);
     const key = [
@@ -143,7 +145,11 @@ export class S3StorageService {
       uploadUrl,
       readableUrl: this.getPublicUrl(key),
       contentType: input.contentType,
-      mediaType: input.contentType.startsWith("video/") ? "video" : "image",
+      mediaType: input.contentType.startsWith("video/")
+        ? "video"
+        : input.contentType === "application/pdf"
+          ? "document"
+          : "image",
       expiresIn: 300,
       headers: {
         "Content-Type": input.contentType,
@@ -197,6 +203,7 @@ export class S3StorageService {
         "image/webp": ".webp",
         "video/mp4": ".mp4",
         "video/quicktime": ".mov",
+        "application/pdf": ".pdf",
       }[contentType] ?? ""
     );
   }

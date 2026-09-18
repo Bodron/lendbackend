@@ -6,6 +6,7 @@ const allowedContentTypes = [
   "image/webp",
   "video/mp4",
   "video/quicktime",
+  "application/pdf",
 ] as const;
 
 export class CreateUploadUrlDto {

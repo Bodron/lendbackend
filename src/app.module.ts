@@ -12,6 +12,7 @@ import { StorageModule } from "./storage/storage.module";
 import { UsersModule } from "./users/users.module";
 import { MessagesModule } from "./messages/messages.module";
 import { ReviewsModule } from "./reviews/reviews.module";
+import { RoommatePostsModule } from "./roommate-posts/roommate-posts.module";
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { ReviewsModule } from "./reviews/reviews.module";
     RentalOrdersModule,
     MessagesModule,
     ReviewsModule,
+    RoommatePostsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

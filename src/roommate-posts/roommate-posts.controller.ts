@@ -1,0 +1,84 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  UnauthorizedException,
+} from "@nestjs/common";
+import { AuthService } from "../auth/auth.service";
+import { CreateRoommateInterestDto } from "./dto/create-roommate-interest.dto";
+import { CreateRoommatePostDto } from "./dto/create-roommate-post.dto";
+import { RoommatePostsService } from "./roommate-posts.service";
+
+@Controller("roommate-posts")
+export class RoommatePostsController {
+  constructor(
+    private readonly roommatePostsService: RoommatePostsService,
+    private readonly authService: AuthService,
+  ) {}
+
+  @Get()
+  findAll() {
+    return this.roommatePostsService.findAll();
+  }
+
+  @Get("me")
+  async findMine(@Headers("authorization") authorization?: string) {
+    const user = await this.getUser(authorization);
+    return this.roommatePostsService.findMine(user.id);
+  }
+
+  @Post()
+  async create(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: CreateRoommatePostDto,
+  ) {
+    const user = await this.getUser(authorization);
+    return this.roommatePostsService.create(user, dto);
+  }
+
+  @Post(":postId/interests")
+  async createInterest(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+    @Body() dto: CreateRoommateInterestDto,
+  ) {
+    const user = await this.getUser(authorization);
+    return this.roommatePostsService.createInterest(user, postId, dto);
+  }
+
+  @Patch(":postId/close")
+  close(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+  ) {
+    return this.roommatePostsService.close(
+      this.getUserId(authorization),
+      postId,
+    );
+  }
+
+  private async getUser(authorization?: string) {
+    const [type, token] = authorization?.split(" ") ?? [];
+
+    if (type !== "Bearer" || !token) {
+      throw new UnauthorizedException("Lipseste tokenul de autentificare.");
+    }
+
+    const payload = this.authService.verifyToken(token);
+    return this.authService.getProfile(payload.sub);
+  }
+
+  private getUserId(authorization?: string): string {
+    const [type, token] = authorization?.split(" ") ?? [];
+
+    if (type !== "Bearer" || !token) {
+      throw new UnauthorizedException("Lipseste tokenul de autentificare.");
+    }
+
+    return this.authService.verifyToken(token).sub;
+  }
+}
