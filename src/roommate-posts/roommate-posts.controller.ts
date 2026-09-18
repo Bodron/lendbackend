@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UnauthorizedException,
 } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
@@ -21,8 +22,22 @@ export class RoommatePostsController {
   ) {}
 
   @Get()
-  findAll() {
-    return this.roommatePostsService.findAll();
+  findAll(
+    @Query("minBudget") minBudget?: string,
+    @Query("maxBudget") maxBudget?: string,
+    @Query("lat") lat?: string,
+    @Query("lng") lng?: string,
+    @Query("radiusKm") radiusKm?: string,
+    @Query("q") q?: string,
+  ) {
+    return this.roommatePostsService.findAll({
+      minBudget,
+      maxBudget,
+      lat,
+      lng,
+      radiusKm,
+      q,
+    });
   }
 
   @Get("me")

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model, Types } from "mongoose";
+import { FilterQuery, Model, Types } from "mongoose";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
 import { S3StorageService } from "../storage/s3-storage.service";
 import { type SafeUser, UsersService } from "../users/users.service";
@@ -34,9 +34,52 @@ export class RoommatePostsService {
     private readonly s3StorageService: S3StorageService,
   ) {}
 
-  async findAll() {
+  async findAll(filters: RoommatePostFilters = {}) {
+    const query: FilterQuery<RoommatePostDocument> = {
+      status: RoommatePostStatus.Open,
+    };
+    const text = filters.q?.trim();
+    const minBudget = this.toOptionalNumber(filters.minBudget);
+    const maxBudget = this.toOptionalNumber(filters.maxBudget);
+    const latitude = this.toOptionalNumber(filters.lat);
+    const longitude = this.toOptionalNumber(filters.lng);
+    const radiusKm = this.toOptionalNumber(filters.radiusKm);
+
+    if (text) {
+      const pattern = this.regexFor(text);
+      const textQuery = [
+        { city: pattern },
+        { area: pattern },
+        { title: pattern },
+        { description: pattern },
+        { preferences: pattern },
+      ];
+      query.$and = query.$and ?? [];
+      query.$and.push({ $or: textQuery });
+    }
+
+    if (minBudget !== undefined || maxBudget !== undefined) {
+      query.budgetPerMonth = {};
+      if (minBudget !== undefined) query.budgetPerMonth.$gte = minBudget;
+      if (maxBudget !== undefined) query.budgetPerMonth.$lte = maxBudget;
+    }
+
+    if (
+      latitude !== undefined &&
+      longitude !== undefined &&
+      radiusKm !== undefined &&
+      radiusKm > 0
+    ) {
+      const productIds = await this.findProductIdsNear(
+        latitude,
+        longitude,
+        radiusKm,
+      );
+      query.productId = { $in: productIds };
+    }
+
     const posts = await this.postModel
-      .find({ status: RoommatePostStatus.Open })
+      .find(query)
       .sort({ createdAt: -1 })
       .exec();
 
@@ -184,4 +227,95 @@ export class RoommatePostsService {
         : null,
     };
   }
+
+  private toOptionalNumber(value?: string) {
+    if (!value) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+  }
+
+  private regexFor(value: string) {
+    return new RegExp(this.escapeRegex(value), "i");
+  }
+
+  private escapeRegex(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  private async findProductIdsNear(
+    latitude: number,
+    longitude: number,
+    radiusKm: number,
+  ) {
+    const latitudeDelta = radiusKm / 111;
+    const longitudeDelta =
+      radiusKm / (111 * Math.max(Math.cos((latitude * Math.PI) / 180), 0.1));
+    const products = await this.productModel
+      .find({
+        categorySlug: "imobiliare",
+        latitude: {
+          $gte: latitude - latitudeDelta,
+          $lte: latitude + latitudeDelta,
+        },
+        longitude: {
+          $gte: longitude - longitudeDelta,
+          $lte: longitude + longitudeDelta,
+        },
+      })
+      .select("_id latitude longitude")
+      .lean()
+      .exec();
+
+    return products
+      .filter(
+        (product) =>
+          typeof product.latitude === "number" &&
+          typeof product.longitude === "number" &&
+          this.distanceKm(
+            latitude,
+            longitude,
+            product.latitude,
+            product.longitude,
+          ) <= radiusKm,
+      )
+      .map((product) => product._id);
+  }
+
+  private distanceKm(
+    fromLatitude: number,
+    fromLongitude: number,
+    toLatitude: number,
+    toLongitude: number,
+  ) {
+    const earthRadiusKm = 6371;
+    const deltaLatitude = this.toRadians(toLatitude - fromLatitude);
+    const deltaLongitude = this.toRadians(toLongitude - fromLongitude);
+    const startLatitude = this.toRadians(fromLatitude);
+    const endLatitude = this.toRadians(toLatitude);
+    const haversine =
+      Math.sin(deltaLatitude / 2) * Math.sin(deltaLatitude / 2) +
+      Math.cos(startLatitude) *
+        Math.cos(endLatitude) *
+        Math.sin(deltaLongitude / 2) *
+        Math.sin(deltaLongitude / 2);
+
+    return (
+      earthRadiusKm *
+      2 *
+      Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+    );
+  }
+
+  private toRadians(value: number) {
+    return (value * Math.PI) / 180;
+  }
 }
+
+type RoommatePostFilters = {
+  minBudget?: string;
+  maxBudget?: string;
+  lat?: string;
+  lng?: string;
+  radiusKm?: string;
+  q?: string;
+};

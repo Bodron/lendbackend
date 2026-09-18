@@ -460,10 +460,27 @@ export class RentalOrdersService {
       throw new NotFoundException("Comanda nu a fost gasita.");
     }
 
+    const scheduleChanged =
+      order.pickupTime !== dto.pickupTime ||
+      order.returnTime !== dto.returnTime;
+
     order.pickupTime = dto.pickupTime;
     order.returnTime = dto.returnTime;
 
-    return order.save();
+    const savedOrder = await order.save();
+
+    if (scheduleChanged && order.renterId !== ownerId) {
+      void this.pushService.sendRentalScheduleUpdated(
+        order.renterId,
+        savedOrder._id.toString(),
+        savedOrder.productId.toString(),
+        product.title,
+        savedOrder.pickupTime,
+        savedOrder.returnTime,
+      );
+    }
+
+    return savedOrder;
   }
 
   async getAvailability(productId: string, from: string, to: string) {

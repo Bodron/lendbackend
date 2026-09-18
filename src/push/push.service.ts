@@ -189,4 +189,66 @@ export class PushService {
       );
     }
   }
+
+  async sendRentalScheduleUpdated(
+    recipientId: string,
+    rentalOrderId: string,
+    productId: string,
+    productTitle: string,
+    pickupTime: string,
+    returnTime: string,
+  ) {
+    if (!this.app) return;
+    try {
+      const devices = await this.devices
+        .find({ userId: recipientId })
+        .select("token")
+        .lean()
+        .exec();
+      for (let offset = 0; offset < devices.length; offset += 500) {
+        const tokens = devices
+          .slice(offset, offset + 500)
+          .map((device) => device.token);
+        const result = await getMessaging(this.app).sendEachForMulticast({
+          tokens,
+          notification: {
+            title: "Program de inchiriere modificat",
+            body: `Programul pentru "${productTitle.slice(0, 100)}" a fost modificat: ridicare ${pickupTime}, retur ${returnTime}.`,
+          },
+          data: {
+            type: "rental_order_received",
+            rentalOrderId,
+            productId,
+            productTitle: productTitle.slice(0, 150),
+            rentalPerspective: "renting",
+          },
+          apns: {
+            headers: { "apns-push-type": "alert", "apns-priority": "10" },
+            payload: {
+              aps: { sound: "default", threadId: `rental:${productId}` },
+            },
+          },
+          android: { priority: "high", notification: { sound: "default" } },
+        });
+        for (let i = 0; i < result.responses.length; i++) {
+          const error = result.responses[i].error;
+          if (!error) continue;
+          if (
+            [
+              "messaging/registration-token-not-registered",
+              "messaging/invalid-registration-token",
+            ].includes(error.code)
+          ) {
+            await this.remove(recipientId, tokens[i]);
+          } else {
+            this.logger.warn(`Push delivery failed: ${error.code}`);
+          }
+        }
+      }
+    } catch {
+      this.logger.error(
+        "Rental schedule push delivery failed; rental remains available in the app.",
+      );
+    }
+  }
 }
