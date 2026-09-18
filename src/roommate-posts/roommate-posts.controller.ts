@@ -10,6 +10,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
+import { MessagesGateway } from "../messages/messages.gateway";
 import { CreateRoommateInterestDto } from "./dto/create-roommate-interest.dto";
 import { CreateRoommatePostDto } from "./dto/create-roommate-post.dto";
 import { RoommatePostsService } from "./roommate-posts.service";
@@ -19,6 +20,7 @@ export class RoommatePostsController {
   constructor(
     private readonly roommatePostsService: RoommatePostsService,
     private readonly authService: AuthService,
+    private readonly messagesGateway: MessagesGateway,
   ) {}
 
   @Get()
@@ -62,7 +64,15 @@ export class RoommatePostsController {
     @Body() dto: CreateRoommateInterestDto,
   ) {
     const user = await this.getUser(authorization);
-    return this.roommatePostsService.createInterest(user, postId, dto);
+    const result = await this.roommatePostsService.createInterest(
+      user,
+      postId,
+      dto,
+    );
+    if (result.message && result.productId) {
+      this.messagesGateway.broadcast(result.productId, result.message);
+    }
+    return result;
   }
 
   @Patch(":postId/close")

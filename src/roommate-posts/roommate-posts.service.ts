@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { FilterQuery, Model, Types } from "mongoose";
+import { MessagesService } from "../messages/messages.service";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
 import { S3StorageService } from "../storage/s3-storage.service";
 import { type SafeUser, UsersService } from "../users/users.service";
@@ -30,6 +31,7 @@ export class RoommatePostsService {
     private readonly interestModel: Model<RoommateInterestDocument>,
     @InjectModel(Product.name)
     private readonly productModel: Model<ProductDocument>,
+    private readonly messagesService: MessagesService,
     private readonly usersService: UsersService,
     private readonly s3StorageService: S3StorageService,
   ) {}
@@ -162,7 +164,7 @@ export class RoommatePostsService {
     }
 
     try {
-      return await this.interestModel.create({
+      const interest = await this.interestModel.create({
         postId: post._id,
         senderId: sender.id,
         senderName: sender.fullName,
@@ -170,6 +172,22 @@ export class RoommatePostsService {
         recipientId: post.authorId,
         message: dto.message?.trim() ?? "",
       });
+      const productId = post.productId?.toString();
+      const chatMessage = productId
+        ? await this.messagesService.createDirect(
+            sender.id,
+            post.authorId,
+            productId,
+            dto.message?.trim() ||
+              `Salut! Sunt interesat de anuntul tau de coleg: ${post.title}`,
+          )
+        : null;
+
+      return {
+        interest,
+        message: chatMessage,
+        productId,
+      };
     } catch (error) {
       if ((error as { code?: number }).code === 11000) {
         throw new BadRequestException("Ai trimis deja o cerere pentru anunt.");

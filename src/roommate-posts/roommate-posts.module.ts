@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import { AuthModule } from "../auth/auth.module";
+import { MessagesModule } from "../messages/messages.module";
 import { Product, ProductSchema } from "../products/schemas/product.schema";
 import { StorageModule } from "../storage/storage.module";
 import { UsersModule } from "../users/users.module";
@@ -18,6 +19,7 @@ import { RoommatePostsService } from "./roommate-posts.service";
 @Module({
   imports: [
     AuthModule,
+    MessagesModule,
     StorageModule,
     UsersModule,
     MongooseModule.forFeature([

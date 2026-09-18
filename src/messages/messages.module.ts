@@ -25,6 +25,6 @@ import { MessagesGateway } from "./messages.gateway";
   ],
   controllers: [MessagesController],
   providers: [MessagesService, MessagesGateway],
-  exports: [MessagesGateway],
+  exports: [MessagesGateway, MessagesService],
 })
 export class MessagesModule {}
