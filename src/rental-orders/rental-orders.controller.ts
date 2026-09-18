@@ -34,9 +34,11 @@ export class RentalOrdersController {
   ) {
     const userId = this.getUserId(authorization);
     const order = await this.rentalOrdersService.create(userId, dto);
-    this.messagesGateway.broadcastRentalOrder("rental_order.created", order, [
-      order.renterId,
-    ]);
+    this.messagesGateway.broadcastRentalOrder(
+      "rental_order.created",
+      order,
+      await this.rentalOrdersService.findOrderParticipantIds(order),
+    );
     return order;
   }
 
@@ -116,9 +118,11 @@ export class RentalOrdersController {
       userId,
       orderId,
     );
-    this.messagesGateway.broadcastRentalOrder("rental_order.updated", order, [
-      order.renterId,
-    ]);
+    this.messagesGateway.broadcastRentalOrder(
+      "rental_order.updated",
+      order,
+      await this.rentalOrdersService.findOrderParticipantIds(order),
+    );
     return order;
   }
 
@@ -134,9 +138,11 @@ export class RentalOrdersController {
       orderId,
       dto,
     );
-    this.messagesGateway.broadcastRentalOrder("rental_order.updated", order, [
-      order.renterId,
-    ]);
+    this.messagesGateway.broadcastRentalOrder(
+      "rental_order.updated",
+      order,
+      await this.rentalOrdersService.findOrderParticipantIds(order),
+    );
     return order;
   }
 

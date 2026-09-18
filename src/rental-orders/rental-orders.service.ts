@@ -237,6 +237,18 @@ export class RentalOrdersService {
     );
   }
 
+  async findOrderParticipantIds(order: RentalOrderDocument) {
+    const product = await this.productModel
+      .findById(order.productId)
+      .select("ownerId ownerName")
+      .lean()
+      .exec();
+
+    return [order.renterId, product?.ownerId].filter((value): value is string =>
+      Boolean(value),
+    );
+  }
+
   async updateStatus(
     orderId: string,
     status: RentalOrderStatus,
