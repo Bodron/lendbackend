@@ -31,6 +31,8 @@ export class Viewing {
     enum: [
       "requested",
       "awaiting_payment",
+      "awaiting_verification",
+      "refund_pending",
       "confirmed",
       "rejected",
       "cancelled",
@@ -40,6 +42,8 @@ export class Viewing {
   status!:
     | "requested"
     | "awaiting_payment"
+    | "awaiting_verification"
+    | "refund_pending"
     | "confirmed"
     | "rejected"
     | "cancelled"
@@ -48,11 +52,17 @@ export class Viewing {
   @Prop({ required: true, min: 0 })
   priceRon!: number;
 
+  @Prop({ min: 0 })
+  serviceFeeRon?: number;
+
   @Prop()
   stripePaymentIntentId?: string;
 
   @Prop()
   paidAt?: Date;
+
+  @Prop()
+  stripeTransferId?: string;
 
   @Prop()
   stripeRefundId?: string;

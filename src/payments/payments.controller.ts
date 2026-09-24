@@ -63,7 +63,7 @@ export class PaymentsController {
             stripePaymentIntentId: object.id,
             status: "awaiting_payment",
           },
-          { $set: { status: "confirmed", paidAt: new Date() } },
+          { $set: { status: "awaiting_verification", paidAt: new Date() } },
         )
         .exec();
     }
@@ -140,6 +140,7 @@ export class PaymentsController {
     if (state.identityVerifiedAt && state.identityVerificationMode === mode) {
       return { verified: true, url: "" };
     }
+    await this.assertIdentityEligible(userId);
     if (
       state.identityVerificationSessionId &&
       state.identityVerificationMode === mode
@@ -345,6 +346,33 @@ export class PaymentsController {
       .exec();
 
     return products.map((product) => product._id);
+  }
+
+  private async assertIdentityEligible(userId: string) {
+    const paidViewing = await this.viewingModel.exists({
+      status: "awaiting_verification",
+      paidAt: { $exists: true },
+      $or: [{ visitorId: userId }, { ownerId: userId }],
+    });
+    if (paidViewing) return;
+    const renterOrder = await this.rentalOrderModel.exists({
+      renterId: userId,
+      status: "pending",
+      paymentStatus: RentalPaymentStatus.Authorized,
+    });
+    if (renterOrder) return;
+    const profile = await this.authService.getProfile(userId);
+    const productIds = await this.findOwnedProductIds(userId, profile.fullName);
+    const ownerOrder = await this.rentalOrderModel.exists({
+      productId: { $in: productIds },
+      status: "pending",
+      paymentStatus: RentalPaymentStatus.Authorized,
+    });
+    if (!ownerOrder) {
+      throw new BadRequestException(
+        "Verificarea identitatii se deschide dupa plata vizionarii sau autorizarea unei inchirieri.",
+      );
+    }
   }
 
   private getUserId(authorization?: string): string {

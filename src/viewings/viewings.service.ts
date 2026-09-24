@@ -3,7 +3,10 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
@@ -14,7 +17,11 @@ import { RequestViewingDto } from "./dto/request-viewing.dto";
 import { Viewing, ViewingDocument } from "./schemas/viewing.schema";
 
 @Injectable()
-export class ViewingsService {
+export class ViewingsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ViewingsService.name);
+  private reconciliationTimer?: NodeJS.Timeout;
+  private reconciling = false;
+
   constructor(
     @InjectModel(Viewing.name)
     private readonly viewingModel: Model<ViewingDocument>,
@@ -23,6 +30,20 @@ export class ViewingsService {
     private readonly usersService: UsersService,
     private readonly stripePaymentsService: StripePaymentsService,
   ) {}
+
+  onModuleInit() {
+    this.reconciliationTimer = setInterval(
+      () => {
+        void this.reconcilePaidViewings();
+      },
+      5 * 60 * 1000,
+    );
+    void this.reconcilePaidViewings();
+  }
+
+  onModuleDestroy() {
+    if (this.reconciliationTimer) clearInterval(this.reconciliationTimer);
+  }
 
   async request(visitorId: string, dto: RequestViewingDto) {
     const product = await this.productModel.findById(dto.productId).exec();
@@ -59,7 +80,14 @@ export class ViewingsService {
       productId: product._id,
       visitorId,
       startsAt,
-      status: { $in: ["requested", "awaiting_payment", "confirmed"] },
+      status: {
+        $in: [
+          "requested",
+          "awaiting_payment",
+          "awaiting_verification",
+          "confirmed",
+        ],
+      },
     });
     if (duplicate)
       throw new ConflictException("Ai deja o cerere pentru aceasta ora.");
@@ -72,6 +100,7 @@ export class ViewingsService {
       startsAt,
       status: "requested",
       priceRon: product.viewingPriceRon ?? 0,
+      serviceFeeRon: Math.round((product.viewingPriceRon ?? 0) * 0.05),
     });
   }
 
@@ -94,7 +123,9 @@ export class ViewingsService {
       _id: { $ne: viewing._id },
       productId: viewing.productId,
       startsAt: viewing.startsAt,
-      status: { $in: ["awaiting_payment", "confirmed"] },
+      status: {
+        $in: ["awaiting_payment", "awaiting_verification", "confirmed"],
+      },
     });
     if (overlapping)
       throw new ConflictException("Aceasta ora este deja rezervata.");
@@ -156,20 +187,69 @@ export class ViewingsService {
     const viewing = await this.find(id);
     if (viewing.ownerId !== ownerId) throw new ForbiddenException();
     if (
-      viewing.status !== "confirmed" ||
+      (viewing.status !== "confirmed" &&
+        !(
+          viewing.status === "completed" &&
+          viewing.priceRon > 0 &&
+          !viewing.stripeTransferId
+        )) ||
       viewing.startsAt.getTime() > Date.now()
     ) {
       throw new ConflictException(
         "Vizionarea poate fi finalizata doar dupa ora programata.",
       );
     }
-    return this.viewingModel
-      .findOneAndUpdate(
-        { _id: viewing._id, status: "confirmed" },
-        { $set: { status: "completed" }, $unset: { reservedSlot: "" } },
-        { new: true },
-      )
-      .exec();
+    if (viewing.priceRon > 0)
+      await this.requireVerifiedIdentity(
+        viewing.visitorId,
+        "Vizitatorul trebuie verificat inainte de finalizare.",
+      );
+    const owner =
+      viewing.priceRon > 0
+        ? await this.requireVerifiedIdentity(
+            ownerId,
+            "Verifica identitatea inainte de finalizare.",
+          )
+        : null;
+    const completed =
+      viewing.status === "completed"
+        ? viewing
+        : await this.viewingModel
+            .findOneAndUpdate(
+              { _id: viewing._id, status: "confirmed" },
+              { $set: { status: "completed" }, $unset: { reservedSlot: "" } },
+              { new: true },
+            )
+            .exec();
+    if (!completed)
+      throw new ConflictException("Vizionarea a fost deja modificata.");
+    if (
+      completed.priceRon > 0 &&
+      completed.serviceFeeRon !== undefined &&
+      !completed.stripeTransferId
+    ) {
+      if (!completed.stripePaymentIntentId || !owner?.stripeAccountId)
+        throw new ConflictException(
+          "Transferul vizionarii nu este disponibil.",
+        );
+      const transfer = await this.stripePaymentsService.transferViewingPayment({
+        viewingId: id,
+        paymentIntentId: completed.stripePaymentIntentId,
+        amountRon: completed.priceRon,
+        destinationAccountId: owner.stripeAccountId,
+      });
+      await this.viewingModel
+        .updateOne(
+          {
+            _id: completed._id,
+            status: "completed",
+            stripeTransferId: { $exists: false },
+          },
+          { $set: { stripeTransferId: transfer.id } },
+        )
+        .exec();
+    }
+    return this.find(id);
   }
 
   async cancel(userId: string, id: string) {
@@ -177,38 +257,30 @@ export class ViewingsService {
     if (viewing.ownerId !== userId && viewing.visitorId !== userId)
       throw new ForbiddenException();
     if (
-      viewing.status === "confirmed" &&
+      ["confirmed", "awaiting_verification"].includes(viewing.status) &&
       viewing.startsAt.getTime() > Date.now()
     ) {
       if (viewing.priceRon > 0) {
-        if (viewing.ownerId !== userId)
+        if (viewing.ownerId !== userId && viewing.status === "confirmed")
           throw new ConflictException(
             "Vizionarea platita poate fi anulata doar de proprietar. Contacteaza suportul pentru o problema cu vizionarea.",
           );
         if (!viewing.stripePaymentIntentId)
           throw new ConflictException("Plata vizionarii nu a fost gasita.");
-        const refund =
-          await this.stripePaymentsService.refundViewingPaymentIntent(
-            viewing.stripePaymentIntentId,
-          );
-        return this.viewingModel
+        const claimed = await this.viewingModel
           .findOneAndUpdate(
-            { _id: viewing._id, status: "confirmed" },
-            {
-              $set: {
-                status: "cancelled",
-                stripeRefundId: refund.id,
-                refundStatus: refund.status,
-              },
-              $unset: { reservedSlot: "" },
-            },
+            { _id: viewing._id, status: viewing.status },
+            { $set: { status: "refund_pending" } },
             { new: true },
           )
           .exec();
+        if (!claimed)
+          throw new ConflictException("Vizionarea a fost deja modificata.");
+        return this.finishViewingRefund(claimed);
       }
       return this.viewingModel
         .findOneAndUpdate(
-          { _id: viewing._id, status: "confirmed" },
+          { _id: viewing._id, status: viewing.status },
           { $set: { status: "cancelled" }, $unset: { reservedSlot: "" } },
           { new: true },
         )
@@ -257,17 +329,11 @@ export class ViewingsService {
       }
       return { clientSecret: intent.client_secret ?? "", confirmed: false };
     }
-    const owner = await this.usersService.findById(viewing.ownerId);
-    if (!owner?.stripeAccountId)
-      throw new BadRequestException(
-        "Contul de plata al proprietarului nu este disponibil.",
-      );
     const intent = await this.stripePaymentsService.createViewingPaymentIntent({
       viewingId: id,
       visitorId,
       productId: viewing.productId.toString(),
-      amountRon: viewing.priceRon,
-      destinationAccountId: owner.stripeAccountId,
+      amountRon: viewing.priceRon + (viewing.serviceFeeRon ?? 0),
     });
     await this.viewingModel
       .updateOne(
@@ -296,9 +362,154 @@ export class ViewingsService {
     await this.viewingModel
       .updateOne(
         { stripePaymentIntentId: paymentIntentId, status: "awaiting_payment" },
-        { $set: { status: "confirmed", paidAt: new Date() } },
+        { $set: { status: "awaiting_verification", paidAt: new Date() } },
       )
       .exec();
+  }
+
+  async confirmIdentities(userId: string, id: string) {
+    const viewing = await this.find(id);
+    if (viewing.visitorId !== userId && viewing.ownerId !== userId)
+      throw new ForbiddenException();
+    if (viewing.status === "confirmed" || viewing.status === "completed")
+      return viewing;
+    if (viewing.status !== "awaiting_verification")
+      throw new ConflictException("Vizionarea nu asteapta verificarea.");
+    const user = await this.requireVerifiedIdentity(
+      userId,
+      "Verifica buletinul si selfie-ul pentru aceasta vizionare.",
+    );
+    const mode = this.stripePaymentsService.isLiveMode() ? "live" : "test";
+    const otherId =
+      viewing.visitorId === userId ? viewing.ownerId : viewing.visitorId;
+    const other = await this.usersService.findById(otherId);
+    if (!other?.identityVerifiedAt || other.identityVerificationMode !== mode)
+      return viewing;
+    const deadline = this.verificationDeadline(viewing);
+    if (
+      !user.identityVerifiedAt ||
+      user.identityVerifiedAt > deadline ||
+      other.identityVerifiedAt > deadline
+    )
+      throw new ConflictException(
+        "Termenul pentru verificare a expirat. Plata va fi rambursata.",
+      );
+    const updated = await this.viewingModel
+      .findOneAndUpdate(
+        { _id: viewing._id, status: "awaiting_verification" },
+        { $set: { status: "confirmed" } },
+        { new: true },
+      )
+      .exec();
+    return updated ?? this.find(id);
+  }
+
+  private async finishViewingRefund(viewing: ViewingDocument) {
+    if (!viewing.stripePaymentIntentId)
+      throw new ConflictException("Plata vizionarii nu a fost gasita.");
+    const refund = await this.stripePaymentsService.refundViewingPaymentIntent(
+      viewing.stripePaymentIntentId,
+      viewing.serviceFeeRon === undefined,
+    );
+    return this.viewingModel
+      .findOneAndUpdate(
+        { _id: viewing._id, status: "refund_pending" },
+        {
+          $set: {
+            status: "cancelled",
+            stripeRefundId: refund.id,
+            refundStatus: refund.status,
+          },
+          $unset: { reservedSlot: "" },
+        },
+        { new: true },
+      )
+      .exec();
+  }
+
+  private async reconcilePaidViewings() {
+    if (this.reconciling) return;
+    this.reconciling = true;
+    try {
+      const now = new Date();
+      const viewings = await this.viewingModel
+        .find({
+          $or: [
+            { status: "refund_pending" },
+            { status: "awaiting_verification" },
+          ],
+        })
+        .sort({ paidAt: 1 })
+        .limit(100)
+        .exec();
+      for (const viewing of viewings) {
+        try {
+          if (viewing.status === "refund_pending") {
+            await this.finishViewingRefund(viewing);
+            continue;
+          }
+          const mode = this.stripePaymentsService.isLiveMode()
+            ? "live"
+            : "test";
+          const [visitor, owner] = await Promise.all([
+            this.usersService.findById(viewing.visitorId),
+            this.usersService.findById(viewing.ownerId),
+          ]);
+          const deadline = this.verificationDeadline(viewing);
+          if (
+            visitor?.identityVerifiedAt &&
+            visitor.identityVerificationMode === mode &&
+            owner?.identityVerifiedAt &&
+            owner.identityVerificationMode === mode &&
+            visitor.identityVerifiedAt <= deadline &&
+            owner.identityVerifiedAt <= deadline
+          ) {
+            await this.viewingModel
+              .updateOne(
+                { _id: viewing._id, status: "awaiting_verification" },
+                { $set: { status: "confirmed" } },
+              )
+              .exec();
+            continue;
+          }
+          if (deadline <= now) {
+            const claimed = await this.viewingModel
+              .findOneAndUpdate(
+                { _id: viewing._id, status: "awaiting_verification" },
+                { $set: { status: "refund_pending" } },
+                { new: true },
+              )
+              .exec();
+            if (claimed) await this.finishViewingRefund(claimed);
+          }
+        } catch (error) {
+          this.logger.error(
+            `Nu am putut reconcilia vizionarea ${viewing._id}`,
+            error,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error("Nu am putut reconcilia vizionarile platite", error);
+    } finally {
+      this.reconciling = false;
+    }
+  }
+
+  private verificationDeadline(viewing: ViewingDocument) {
+    const afterPayment = viewing.paidAt
+      ? viewing.paidAt.getTime() + 48 * 60 * 60 * 1000
+      : Number.POSITIVE_INFINITY;
+    return new Date(Math.min(viewing.startsAt.getTime(), afterPayment));
+  }
+
+  private async requireVerifiedIdentity(userId: string, message: string) {
+    const user = await this.usersService.findById(userId);
+    const mode = this.stripePaymentsService.isLiveMode() ? "live" : "test";
+    if (!user?.identityVerifiedAt || user.identityVerificationMode !== mode) {
+      throw new BadRequestException(message);
+    }
+    return user;
   }
 
   private async find(id: string) {

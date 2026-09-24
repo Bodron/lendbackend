@@ -6,12 +6,15 @@ describe("StripePaymentsService transaction setup", () => {
   const createPayment = jest.fn();
   const createIdentity = jest.fn();
   const createEphemeralKey = jest.fn();
+  const retrievePayment = jest.fn();
+  const createTransfer = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
     service = new StripePaymentsService(config as any);
     (service as any).stripe = {
-      paymentIntents: { create: createPayment },
+      paymentIntents: { create: createPayment, retrieve: retrievePayment },
+      transfers: { create: createTransfer },
       identity: { verificationSessions: { create: createIdentity } },
       ephemeralKeys: { create: createEphemeralKey },
     };
@@ -44,6 +47,47 @@ describe("StripePaymentsService transaction setup", () => {
         client_reference_id: "user-1",
         options: { document: { require_matching_selfie: true } },
       }),
+    );
+  });
+
+  it("captures a paid viewing on the platform before either identity check", async () => {
+    createPayment.mockResolvedValue({ id: "pi_viewing" });
+    await service.createViewingPaymentIntent({
+      viewingId: "view-1",
+      visitorId: "visitor-1",
+      productId: "product-1",
+      amountRon: 26,
+    });
+    expect(createPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 2600,
+        currency: "ron",
+        transfer_group: "viewing_view-1",
+      }),
+      { idempotencyKey: "viewing-payment-v2-view-1" },
+    );
+    expect(createPayment.mock.calls[0][0].transfer_data).toBeUndefined();
+  });
+
+  it("transfers only the owner's price after the viewing is complete", async () => {
+    retrievePayment.mockResolvedValue({
+      status: "succeeded",
+      latest_charge: "ch_viewing",
+    });
+    createTransfer.mockResolvedValue({ id: "tr_viewing" });
+    await service.transferViewingPayment({
+      viewingId: "view-1",
+      paymentIntentId: "pi_viewing",
+      amountRon: 25,
+      destinationAccountId: "acct_owner",
+    });
+    expect(createTransfer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 2500,
+        destination: "acct_owner",
+        source_transaction: "ch_viewing",
+      }),
+      { idempotencyKey: "viewing-transfer-view-1" },
     );
   });
 

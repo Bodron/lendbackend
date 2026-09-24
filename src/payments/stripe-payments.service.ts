@@ -76,21 +76,20 @@ export class StripePaymentsService {
     visitorId: string;
     productId: string;
     amountRon: number;
-    destinationAccountId: string;
   }) {
     return this.getStripe().paymentIntents.create(
       {
         amount: this.toMinorUnits(input.amountRon),
         currency: "ron",
         payment_method_types: ["card"],
-        transfer_data: { destination: input.destinationAccountId },
+        transfer_group: `viewing_${input.viewingId}`,
         metadata: {
           viewingId: input.viewingId,
           visitorId: input.visitorId,
           productId: input.productId,
         },
       },
-      { idempotencyKey: `viewing-payment-${input.viewingId}` },
+      { idempotencyKey: `viewing-payment-v2-${input.viewingId}` },
     );
   }
 
@@ -113,10 +112,45 @@ export class StripePaymentsService {
     );
   }
 
-  async refundViewingPaymentIntent(paymentIntentId: string) {
+  async refundViewingPaymentIntent(
+    paymentIntentId: string,
+    reverseTransfer = false,
+  ) {
     return this.getStripe().refunds.create(
-      { payment_intent: paymentIntentId, reverse_transfer: true },
+      {
+        payment_intent: paymentIntentId,
+        ...(reverseTransfer ? { reverse_transfer: true } : {}),
+      },
       { idempotencyKey: `viewing-refund-${paymentIntentId}` },
+    );
+  }
+
+  async transferViewingPayment(input: {
+    viewingId: string;
+    paymentIntentId: string;
+    amountRon: number;
+    destinationAccountId: string;
+  }) {
+    const intent = await this.getPaymentIntent(input.paymentIntentId);
+    if (intent.status !== "succeeded" || !intent.latest_charge) {
+      throw new BadRequestException(
+        "Plata vizionarii nu este disponibila pentru transfer.",
+      );
+    }
+    const chargeId =
+      typeof intent.latest_charge === "string"
+        ? intent.latest_charge
+        : intent.latest_charge.id;
+    return this.getStripe().transfers.create(
+      {
+        amount: this.toMinorUnits(input.amountRon),
+        currency: "ron",
+        destination: input.destinationAccountId,
+        source_transaction: chargeId,
+        transfer_group: `viewing_${input.viewingId}`,
+        metadata: { viewingId: input.viewingId },
+      },
+      { idempotencyKey: `viewing-transfer-${input.viewingId}` },
     );
   }
 

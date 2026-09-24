@@ -80,6 +80,14 @@ export class ViewingsController {
     return this.service.confirmPayment(this.userId(authorization), id);
   }
 
+  @Patch(":id/identity-confirmed")
+  identityConfirmed(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("id") id: string,
+  ) {
+    return this.service.confirmIdentities(this.userId(authorization), id);
+  }
+
   private userId(authorization?: string) {
     const [type, token] = authorization?.split(" ") ?? [];
     if (type !== "Bearer" || !token) throw new UnauthorizedException();
