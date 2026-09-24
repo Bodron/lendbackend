@@ -71,6 +71,29 @@ export class StripePaymentsService {
     });
   }
 
+  async createViewingPaymentIntent(input: {
+    viewingId: string;
+    visitorId: string;
+    productId: string;
+    amountRon: number;
+    destinationAccountId: string;
+  }) {
+    return this.getStripe().paymentIntents.create(
+      {
+        amount: this.toMinorUnits(input.amountRon),
+        currency: "ron",
+        payment_method_types: ["card"],
+        transfer_data: { destination: input.destinationAccountId },
+        metadata: {
+          viewingId: input.viewingId,
+          visitorId: input.visitorId,
+          productId: input.productId,
+        },
+      },
+      { idempotencyKey: `viewing-payment-${input.viewingId}` },
+    );
+  }
+
   async capturePaymentIntent(paymentIntentId: string) {
     return this.getStripe().paymentIntents.capture(paymentIntentId);
   }
@@ -87,6 +110,13 @@ export class StripePaymentsService {
     return this.getStripe().refunds.create(
       { payment_intent: paymentIntentId },
       { idempotencyKey: `rental-refund-${paymentIntentId}` },
+    );
+  }
+
+  async refundViewingPaymentIntent(paymentIntentId: string) {
+    return this.getStripe().refunds.create(
+      { payment_intent: paymentIntentId, reverse_transfer: true },
+      { idempotencyKey: `viewing-refund-${paymentIntentId}` },
     );
   }
 
@@ -110,7 +140,9 @@ export class StripePaymentsService {
       { apiVersion: "2026-08-26.dahlia" },
     );
     if (!key.secret) {
-      throw new BadRequestException("Cheia temporara Stripe Identity lipseste.");
+      throw new BadRequestException(
+        "Cheia temporara Stripe Identity lipseste.",
+      );
     }
     return key.secret;
   }

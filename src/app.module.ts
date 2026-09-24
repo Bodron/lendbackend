@@ -13,6 +13,7 @@ import { UsersModule } from "./users/users.module";
 import { MessagesModule } from "./messages/messages.module";
 import { ReviewsModule } from "./reviews/reviews.module";
 import { RoommatePostsModule } from "./roommate-posts/roommate-posts.module";
+import { ViewingsModule } from "./viewings/viewings.module";
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { RoommatePostsModule } from "./roommate-posts/roommate-posts.module";
     MessagesModule,
     ReviewsModule,
     RoommatePostsModule,
+    ViewingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

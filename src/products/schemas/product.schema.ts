@@ -48,6 +48,12 @@ export class Product {
   @Prop({ required: true, min: 0 })
   deposit!: number;
 
+  @Prop({ required: true, default: false })
+  viewingsEnabled!: boolean;
+
+  @Prop({ required: true, min: 0, default: 0 })
+  viewingPriceRon!: number;
+
   @Prop({ required: true, trim: true })
   city!: string;
 

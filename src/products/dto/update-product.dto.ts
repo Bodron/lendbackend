@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsNumber,
   Matches,
@@ -48,6 +49,16 @@ export class UpdateProductDto {
   @Min(0)
   @Max(100000)
   deposit?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  viewingsEnabled?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100000)
+  viewingPriceRon?: number;
 
   @IsOptional()
   @IsInt()

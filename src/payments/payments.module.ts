@@ -9,6 +9,7 @@ import {
 import { UsersModule } from "../users/users.module";
 import { PaymentsController } from "./payments.controller";
 import { StripePaymentsService } from "./stripe-payments.service";
+import { Viewing, ViewingSchema } from "../viewings/schemas/viewing.schema";
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { StripePaymentsService } from "./stripe-payments.service";
     MongooseModule.forFeature([
       { name: Product.name, schema: ProductSchema },
       { name: RentalOrder.name, schema: RentalOrderSchema },
+      { name: Viewing.name, schema: ViewingSchema },
     ]),
   ],
   controllers: [PaymentsController],

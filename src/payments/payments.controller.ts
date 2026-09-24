@@ -21,6 +21,7 @@ import {
 import { UsersService } from "../users/users.service";
 import { StripePaymentsService } from "./stripe-payments.service";
 import { RequestPayoutDto } from "./dto/request-payout.dto";
+import { Viewing, ViewingDocument } from "../viewings/schemas/viewing.schema";
 
 @Controller("payments")
 export class PaymentsController {
@@ -32,6 +33,8 @@ export class PaymentsController {
     private readonly productModel: Model<ProductDocument>,
     @InjectModel(RentalOrder.name)
     private readonly rentalOrderModel: Model<RentalOrderDocument>,
+    @InjectModel(Viewing.name)
+    private readonly viewingModel: Model<ViewingDocument>,
   ) {}
 
   @Get("config")
@@ -49,6 +52,32 @@ export class PaymentsController {
       signature,
     );
     const object = event.data.object as any;
+    if (
+      event.type === "payment_intent.succeeded" &&
+      object.metadata?.viewingId
+    ) {
+      await this.viewingModel
+        .updateOne(
+          {
+            _id: object.metadata.viewingId,
+            stripePaymentIntentId: object.id,
+            status: "awaiting_payment",
+          },
+          { $set: { status: "confirmed", paidAt: new Date() } },
+        )
+        .exec();
+    }
+    if (event.type === "refund.updated" && object.payment_intent) {
+      await this.viewingModel
+        .updateOne(
+          {
+            stripePaymentIntentId: object.payment_intent,
+            stripeRefundId: object.id,
+          },
+          { $set: { refundStatus: object.status } },
+        )
+        .exec();
+    }
     if (event.type === "identity.verification_session.verified") {
       await this.usersService.markIdentityVerified(object.id);
     }
@@ -145,7 +174,9 @@ export class PaymentsController {
     const state = await this.usersService.getVerificationState(userId);
     const sessionId = state?.identityVerificationSessionId;
     if (!sessionId || !result.url) {
-      throw new BadRequestException("Sesiunea Stripe Identity nu este disponibila.");
+      throw new BadRequestException(
+        "Sesiunea Stripe Identity nu este disponibila.",
+      );
     }
     const ephemeralKeySecret =
       await this.stripePaymentsService.createIdentityEphemeralKey(sessionId);

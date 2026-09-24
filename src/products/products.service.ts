@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   ConflictException,
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -71,6 +72,11 @@ export class ProductsService {
     owner: SafeUser,
     dto: CreateProductDto,
   ): Promise<ProductResponse> {
+    this.validateViewingConfig(
+      dto.categorySlug,
+      dto.viewingsEnabled,
+      dto.viewingPriceRon,
+    );
     const slug = await this.createUniqueSlug(dto.title);
     const media = dto.media ?? [];
     const product = await this.productModel.create({
@@ -83,6 +89,12 @@ export class ProductsService {
       pricePerDay: dto.pricePerDay,
       pricePerMonth: dto.pricePerMonth,
       deposit: dto.deposit,
+      viewingsEnabled:
+        dto.categorySlug === "imobiliare" && (dto.viewingsEnabled ?? false),
+      viewingPriceRon:
+        dto.categorySlug === "imobiliare" && dto.viewingsEnabled
+          ? (dto.viewingPriceRon ?? 0)
+          : 0,
       stockQuantity: dto.stockQuantity ?? 1,
       city: dto.city,
       address: dto.address,
@@ -129,6 +141,20 @@ export class ProductsService {
         if (!ownedByUser) {
           throw new ForbiddenException("Nu poti edita acest produs.");
         }
+        if (!product.ownerId) product.ownerId = owner.id;
+
+        const nextCategorySlug = dto.categorySlug ?? product.categorySlug;
+        const nextViewingsEnabled =
+          nextCategorySlug === "imobiliare" &&
+          (dto.viewingsEnabled ?? product.viewingsEnabled ?? false);
+        const nextViewingPriceRon = nextViewingsEnabled
+          ? (dto.viewingPriceRon ?? product.viewingPriceRon ?? 0)
+          : 0;
+        this.validateViewingConfig(
+          nextCategorySlug,
+          nextViewingsEnabled,
+          nextViewingPriceRon,
+        );
 
         if (
           dto.stockQuantity !== undefined &&
@@ -164,6 +190,11 @@ export class ProductsService {
         if (dto.pricePerMonth !== undefined)
           product.pricePerMonth = dto.pricePerMonth;
         if (dto.deposit !== undefined) product.deposit = dto.deposit;
+        product.viewingsEnabled =
+          nextCategorySlug === "imobiliare" && nextViewingsEnabled;
+        product.viewingPriceRon = product.viewingsEnabled
+          ? nextViewingPriceRon
+          : 0;
         if (dto.stockQuantity !== undefined)
           product.stockQuantity = dto.stockQuantity;
         if (dto.city !== undefined) product.city = dto.city;
@@ -190,6 +221,24 @@ export class ProductsService {
   async findBySlug(slug: string): Promise<ProductResponse | null> {
     const product = await this.productModel.findOne({ slug }).exec();
     return product ? this.withReadableImageUrls(product) : null;
+  }
+
+  private validateViewingConfig(
+    categorySlug: string,
+    enabled?: boolean,
+    priceRon?: number,
+  ) {
+    if (categorySlug !== "imobiliare" && (enabled || (priceRon ?? 0) > 0)) {
+      throw new BadRequestException(
+        "Vizionarile sunt disponibile doar pentru anunturile imobiliare.",
+      );
+    }
+    if (
+      priceRon !== undefined &&
+      (!Number.isInteger(priceRon) || priceRon < 0 || priceRon === 1)
+    ) {
+      throw new BadRequestException("Pretul vizionarii este invalid.");
+    }
   }
 
   async seedMockProducts(): Promise<ProductResponse[]> {
