@@ -2,6 +2,9 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
   NotFoundException,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
@@ -40,9 +43,11 @@ const blockingStatuses = [
 ];
 
 @Injectable()
-export class RentalOrdersService {
+export class RentalOrdersService implements OnModuleInit, OnModuleDestroy {
   private static readonly HOURLY_TURNAROUND_BUFFER_MINUTES = 60;
   private static readonly LOCAL_RENTAL_RADIUS_KM = 50;
+  private readonly logger = new Logger(RentalOrdersService.name);
+  private expiryTimer?: NodeJS.Timeout;
   constructor(
     @InjectModel(RentalOrder.name)
     private readonly rentalOrderModel: Model<RentalOrderDocument>,
@@ -56,10 +61,46 @@ export class RentalOrdersService {
     private readonly pushService: PushService,
   ) {}
 
+  onModuleInit() {
+    this.expiryTimer = setInterval(() => {
+      void this.expireAuthorizations();
+    }, 60_000);
+    void this.expireAuthorizations();
+  }
+
+  onModuleDestroy() {
+    if (this.expiryTimer) clearInterval(this.expiryTimer);
+  }
+
+  private async expireAuthorizations() {
+    try {
+      const expired = await this.rentalOrderModel
+        .find({
+          status: RentalOrderStatus.Pending,
+          paymentStatus: RentalPaymentStatus.Authorized,
+          authorizationExpiresAt: { $lte: new Date() },
+        })
+        .limit(100)
+        .exec();
+      for (const order of expired) {
+        try {
+          await this.releaseAuthorization(order);
+        } catch (error) {
+          this.logger.error(
+            `Could not release order ${order.id}: ${String(error)}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Authorization expiry scan failed: ${String(error)}`);
+    }
+  }
+
   async create(
     renterId: string,
     dto: CreateRentalOrderDto,
   ): Promise<RentalOrderDocument> {
+    this.stripePaymentsService.assertVerificationConfigured();
     const product = await this.productModel.findById(dto.productId).exec();
 
     if (!product) {
@@ -263,6 +304,8 @@ export class RentalOrdersService {
   async updateStatus(
     orderId: string,
     status: RentalOrderStatus,
+    ownerId: string,
+    ownerName: string,
   ): Promise<RentalOrderDocument> {
     if (!Types.ObjectId.isValid(orderId)) {
       throw new NotFoundException("Comanda nu a fost gasita.");
@@ -272,6 +315,19 @@ export class RentalOrdersService {
 
     if (!order) {
       throw new NotFoundException("Comanda nu a fost gasita.");
+    }
+
+    await this.assertOwnerCanManageOrder(ownerId, ownerName, order);
+    if (
+      status !== RentalOrderStatus.Completed ||
+      ![RentalOrderStatus.Confirmed, RentalOrderStatus.Active].includes(
+        order.status,
+      ) ||
+      order.paymentStatus !== RentalPaymentStatus.Captured
+    ) {
+      throw new BadRequestException(
+        "Returul nu poate fi finalizat pentru aceasta cerere.",
+      );
     }
 
     return withInventoryLock(this.productModel, order.productId, async () => {
@@ -329,15 +385,28 @@ export class RentalOrdersService {
       order.stripePaymentIntentId,
     );
 
-    if (paymentIntent.status !== "succeeded") {
+    if (
+      paymentIntent.status !== "requires_capture" &&
+      paymentIntent.status !== "succeeded"
+    ) {
       throw new BadRequestException("Plata nu este autorizata in Stripe.");
     }
 
-    const wasCaptured = order.paymentStatus === RentalPaymentStatus.Captured;
-    order.paymentStatus = RentalPaymentStatus.Captured;
+    const wasAuthorized =
+      order.paymentStatus === RentalPaymentStatus.Authorized ||
+      order.paymentStatus === RentalPaymentStatus.Captured;
+    order.paymentStatus =
+      paymentIntent.status === "succeeded"
+        ? RentalPaymentStatus.Captured
+        : RentalPaymentStatus.Authorized;
+    if (paymentIntent.status === "requires_capture") {
+      order.authorizationExpiresAt ??= new Date(
+        Date.now() + 48 * 60 * 60 * 1000,
+      );
+    }
     const savedOrder = await order.save();
 
-    if (!wasCaptured) {
+    if (!wasAuthorized && paymentIntent.status === "succeeded") {
       const product = await this.productModel
         .findById(savedOrder.productId)
         .select("ownerId title")
@@ -361,6 +430,104 @@ export class RentalOrdersService {
     }
 
     return savedOrder;
+  }
+
+  async markRenterReady(renterId: string, orderId: string) {
+    const order = await this.findOrderOrFail(orderId);
+    if (
+      order.renterId !== renterId ||
+      order.status !== RentalOrderStatus.Pending
+    ) {
+      throw new NotFoundException("Comanda nu a fost gasita.");
+    }
+    if (order.paymentStatus !== RentalPaymentStatus.Authorized) {
+      throw new BadRequestException("Plata trebuie autorizata mai intai.");
+    }
+    if (
+      order.authorizationExpiresAt &&
+      order.authorizationExpiresAt <= new Date()
+    ) {
+      await this.releaseAuthorization(order);
+      throw new BadRequestException("Autorizarea platii a expirat.");
+    }
+    const renter = await this.usersService.findById(renterId);
+    if (
+      !renter?.identityVerifiedAt ||
+      renter.identityVerificationMode !==
+        (this.stripePaymentsService.isLiveMode() ? "live" : "test")
+    ) {
+      throw new BadRequestException(
+        "Verifica actul si selfie-ul pentru a trimite cererea.",
+      );
+    }
+    return withInventoryLock(this.productModel, order.productId, async () => {
+      const current = await this.findOrderOrFail(orderId);
+      if (
+        current.status !== RentalOrderStatus.Pending ||
+        current.paymentStatus !== RentalPaymentStatus.Authorized ||
+        (current.authorizationExpiresAt &&
+          current.authorizationExpiresAt <= new Date())
+      ) {
+        throw new BadRequestException(
+          "Autorizarea platii nu mai este valabila.",
+        );
+      }
+      if (!current.renterVerifiedAt) {
+        current.renterVerifiedAt = new Date();
+        await current.save();
+        const product = await this.productModel
+          .findById(current.productId)
+          .select("ownerId title")
+          .lean()
+          .exec();
+        if (product?.ownerId && product.ownerId !== renterId) {
+          void this.pushService.sendRentalRequest(
+            product.ownerId,
+            current._id.toString(),
+            current.productId.toString(),
+            product.title,
+          );
+        }
+      }
+      return current;
+    });
+  }
+
+  private async releaseAuthorization(order: RentalOrderDocument) {
+    return withInventoryLock(this.productModel, order.productId, async () => {
+      const current = await this.findOrderOrFail(order.id);
+      if (current.status !== RentalOrderStatus.Pending) {
+        throw new BadRequestException("Cererea nu mai poate fi anulata.");
+      }
+      if (current.stripePaymentIntentId) {
+        const intent = await this.stripePaymentsService.getPaymentIntent(
+          current.stripePaymentIntentId,
+        );
+        if (intent.status === "requires_capture") {
+          await this.stripePaymentsService.cancelPaymentIntent(
+            current.stripePaymentIntentId,
+          );
+        } else if (intent.status === "succeeded") {
+          const refund = await this.stripePaymentsService.refundPaymentIntent(
+            current.stripePaymentIntentId,
+          );
+          current.refundStatus = refund.status ?? "pending";
+          current.paymentStatus =
+            refund.status === "succeeded"
+              ? RentalPaymentStatus.Refunded
+              : RentalPaymentStatus.Processing;
+        }
+      }
+      current.status = RentalOrderStatus.Rejected;
+      if (
+        current.paymentStatus !== RentalPaymentStatus.Refunded &&
+        current.paymentStatus !== RentalPaymentStatus.Processing
+      ) {
+        current.paymentStatus = RentalPaymentStatus.Cancelled;
+      }
+      current.payoutStatus = RentalPayoutStatus.NotReady;
+      return current.save();
+    });
   }
 
   async attachSignedContract(
@@ -398,14 +565,47 @@ export class RentalOrdersService {
       throw new BadRequestException("Cererea nu mai poate fi acceptata.");
     }
 
-    if (order.paymentStatus !== RentalPaymentStatus.Captured) {
+    if (
+      order.paymentStatus !== RentalPaymentStatus.Authorized &&
+      order.paymentStatus !== RentalPaymentStatus.Captured
+    ) {
       throw new BadRequestException("Cererea nu are plata confirmata inca.");
+    }
+
+    const owner = await this.usersService.findById(ownerId);
+    if (
+      !owner?.identityVerifiedAt ||
+      owner.identityVerificationMode !==
+        (this.stripePaymentsService.isLiveMode() ? "live" : "test")
+    ) {
+      throw new BadRequestException(
+        "Verifica actul si selfie-ul inainte de acceptare.",
+      );
+    }
+    if (order.paymentStatus === RentalPaymentStatus.Authorized) {
+      if (!order.renterVerifiedAt) {
+        throw new BadRequestException("Chiriasul nu a finalizat verificarea.");
+      }
+      if (
+        order.authorizationExpiresAt &&
+        order.authorizationExpiresAt <= new Date()
+      ) {
+        await this.releaseAuthorization(order);
+        throw new BadRequestException("Autorizarea platii a expirat.");
+      }
     }
 
     return withInventoryLock(this.productModel, order.productId, async () => {
       const current = await this.findOrderOrFail(orderId);
       if (current.status !== RentalOrderStatus.Pending)
         throw new BadRequestException("Cererea nu mai poate fi acceptata.");
+      if (
+        current.authorizationExpiresAt &&
+        current.authorizationExpiresAt <= new Date() &&
+        current.paymentStatus === RentalPaymentStatus.Authorized
+      ) {
+        throw new BadRequestException("Autorizarea platii a expirat.");
+      }
       const product = await this.findProductOrFail(
         current.productId.toString(),
       );
@@ -426,8 +626,26 @@ export class RentalOrdersService {
         throw new ConflictException(
           "Nu mai exista unitati disponibile in aceasta perioada.",
         );
+      if (current.paymentStatus === RentalPaymentStatus.Authorized) {
+        if (!current.stripePaymentIntentId) {
+          throw new BadRequestException("Lipseste plata Stripe.");
+        }
+        const intent = await this.stripePaymentsService.getPaymentIntent(
+          current.stripePaymentIntentId,
+        );
+        if (intent.status === "requires_capture") {
+          await this.stripePaymentsService.capturePaymentIntent(
+            current.stripePaymentIntentId,
+          );
+        } else if (intent.status !== "succeeded") {
+          throw new BadRequestException(
+            "Autorizarea platii nu mai este valabila.",
+          );
+        }
+      }
       current.status = RentalOrderStatus.Confirmed;
       current.paymentStatus = RentalPaymentStatus.Captured;
+      current.ownerVerifiedAt = new Date();
       current.payoutStatus = RentalPayoutStatus.PendingOnboarding;
       return current.save();
     });
@@ -445,17 +663,7 @@ export class RentalOrdersService {
       throw new BadRequestException("Cererea nu mai poate fi refuzata.");
     }
 
-    if (order.stripePaymentIntentId) {
-      await this.stripePaymentsService.cancelPaymentIntent(
-        order.stripePaymentIntentId,
-      );
-    }
-
-    order.status = RentalOrderStatus.Rejected;
-    order.paymentStatus = RentalPaymentStatus.Cancelled;
-    order.payoutStatus = RentalPayoutStatus.NotReady;
-
-    return order.save();
+    return this.releaseAuthorization(order);
   }
 
   async updateSchedule(

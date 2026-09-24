@@ -23,10 +23,28 @@ export class StripePaymentsService {
     };
   }
 
+  isLiveMode() {
+    return (
+      this.configService
+        .get<string>("STRIPE_SECRET_KEY")
+        ?.startsWith("sk_live_") ?? false
+    );
+  }
+
+  assertVerificationConfigured() {
+    if (!this.configService.get<string>("STRIPE_SECRET_KEY")) {
+      throw new BadRequestException(
+        "Verificarea identitatii prin Stripe nu este configurata. Plata nu a fost pornita.",
+      );
+    }
+  }
+
   constructWebhookEvent(payload: Buffer | string, signature: string) {
     const secret = this.configService.get<string>("STRIPE_WEBHOOK_SECRET");
     if (!secret) {
-      throw new BadRequestException("Stripe webhook secret nu este configurat.");
+      throw new BadRequestException(
+        "Stripe webhook secret nu este configurat.",
+      );
     }
     return this.getStripe().webhooks.constructEvent(payload, signature, secret);
   }
@@ -42,7 +60,8 @@ export class StripePaymentsService {
     return stripe.paymentIntents.create({
       amount: this.toMinorUnits(input.amountRon),
       currency: "ron",
-      automatic_payment_methods: { enabled: true },
+      capture_method: "manual",
+      payment_method_types: ["card"],
       metadata: {
         rentalOrderId: input.orderId,
         renterId: input.renterId,
@@ -62,6 +81,38 @@ export class StripePaymentsService {
 
   async cancelPaymentIntent(paymentIntentId: string) {
     return this.getStripe().paymentIntents.cancel(paymentIntentId);
+  }
+
+  async refundPaymentIntent(paymentIntentId: string) {
+    return this.getStripe().refunds.create(
+      { payment_intent: paymentIntentId },
+      { idempotencyKey: `rental-refund-${paymentIntentId}` },
+    );
+  }
+
+  async createIdentitySession(userId: string, email: string) {
+    return this.getStripe().identity.verificationSessions.create({
+      type: "document",
+      client_reference_id: userId,
+      provided_details: { email },
+      options: { document: { require_matching_selfie: true } },
+      metadata: { userId },
+    });
+  }
+
+  async getIdentitySession(sessionId: string) {
+    return this.getStripe().identity.verificationSessions.retrieve(sessionId);
+  }
+
+  async createIdentityEphemeralKey(sessionId: string) {
+    const key = await this.getStripe().ephemeralKeys.create(
+      { verification_session: sessionId },
+      { apiVersion: "2026-08-26.dahlia" },
+    );
+    if (!key.secret) {
+      throw new BadRequestException("Cheia temporara Stripe Identity lipseste.");
+    }
+    return key.secret;
   }
 
   async createExpressAccount(input: {
@@ -122,7 +173,10 @@ export class StripePaymentsService {
       );
     }
 
-    return configuredUrl.trim().replace(/\/api\/?$/, "").replace(/\/$/, "");
+    return configuredUrl
+      .trim()
+      .replace(/\/api\/?$/, "")
+      .replace(/\/$/, "");
   }
 
   async getAccount(accountId: string) {

@@ -49,6 +49,23 @@ export class PaymentsController {
       signature,
     );
     const object = event.data.object as any;
+    if (event.type === "identity.verification_session.verified") {
+      await this.usersService.markIdentityVerified(object.id);
+    }
+    if (event.type === "refund.updated" && object.payment_intent) {
+      const paymentStatus =
+        object.status === "succeeded"
+          ? RentalPaymentStatus.Refunded
+          : object.status === "failed"
+            ? RentalPaymentStatus.Failed
+            : RentalPaymentStatus.Processing;
+      await this.rentalOrderModel
+        .updateOne(
+          { stripePaymentIntentId: object.payment_intent, status: "rejected" },
+          { $set: { paymentStatus, refundStatus: object.status } },
+        )
+        .exec();
+    }
     const orderId = object.metadata?.rentalOrderId;
     if (orderId) {
       const update: Record<string, unknown> = {};
@@ -56,18 +73,109 @@ export class PaymentsController {
         update.paymentStatus = RentalPaymentStatus.Failed;
       } else if (event.type === "payment_intent.amount_capturable_updated") {
         update.paymentStatus = RentalPaymentStatus.Authorized;
+        update.authorizationExpiresAt = new Date(
+          (event.created + 48 * 60 * 60) * 1000,
+        );
       } else if (event.type === "payment_intent.succeeded") {
         update.paymentStatus = RentalPaymentStatus.Captured;
+      } else if (event.type === "payment_intent.canceled") {
+        update.paymentStatus = RentalPaymentStatus.Cancelled;
+        update.status = "rejected";
       } else if (event.type === "charge.refunded") {
         update.paymentStatus = RentalPaymentStatus.Refunded;
       }
       if (Object.keys(update).length) {
-        await this.rentalOrderModel
-          .updateOne({ _id: orderId }, { $set: update })
-          .exec();
+        const filter: Record<string, unknown> = { _id: orderId };
+        if (event.type === "payment_intent.amount_capturable_updated") {
+          filter.status = "pending";
+          filter.paymentStatus = {
+            $nin: [
+              RentalPaymentStatus.Captured,
+              RentalPaymentStatus.Refunded,
+              RentalPaymentStatus.Cancelled,
+            ],
+          };
+        }
+        await this.rentalOrderModel.updateOne(filter, { $set: update }).exec();
       }
     }
     return { received: true };
+  }
+
+  @Post("identity/start")
+  async startIdentity(@Headers("authorization") authorization?: string) {
+    const userId = this.getUserId(authorization);
+    const state = await this.usersService.getVerificationState(userId);
+    if (!state) throw new UnauthorizedException();
+    const mode = this.stripePaymentsService.isLiveMode() ? "live" : "test";
+    if (state.identityVerifiedAt && state.identityVerificationMode === mode) {
+      return { verified: true, url: "" };
+    }
+    if (
+      state.identityVerificationSessionId &&
+      state.identityVerificationMode === mode
+    ) {
+      const existing = await this.stripePaymentsService.getIdentitySession(
+        state.identityVerificationSessionId,
+      );
+      if (existing.status === "verified") {
+        await this.usersService.markIdentityVerified(existing.id);
+        return { verified: true, url: "" };
+      }
+      if (existing.status === "requires_input" && existing.url) {
+        return { verified: false, url: existing.url };
+      }
+      if (existing.status === "processing") {
+        return { verified: false, url: "", processing: true };
+      }
+    }
+    const session = await this.stripePaymentsService.createIdentitySession(
+      userId,
+      state.email,
+    );
+    await this.usersService.setIdentitySession(userId, session.id, mode);
+    return { verified: false, url: session.url };
+  }
+
+  @Post("identity/native/start")
+  async startNativeIdentity(@Headers("authorization") authorization?: string) {
+    const result = await this.startIdentity(authorization);
+    if (result.verified || result.processing) return result;
+    const userId = this.getUserId(authorization);
+    const state = await this.usersService.getVerificationState(userId);
+    const sessionId = state?.identityVerificationSessionId;
+    if (!sessionId || !result.url) {
+      throw new BadRequestException("Sesiunea Stripe Identity nu este disponibila.");
+    }
+    const ephemeralKeySecret =
+      await this.stripePaymentsService.createIdentityEphemeralKey(sessionId);
+    return { verified: false, sessionId, ephemeralKeySecret };
+  }
+
+  @Get("identity/status")
+  async identityStatus(@Headers("authorization") authorization?: string) {
+    const userId = this.getUserId(authorization);
+    const state = await this.usersService.getVerificationState(userId);
+    if (!state) throw new UnauthorizedException();
+    const mode = this.stripePaymentsService.isLiveMode() ? "live" : "test";
+    if (
+      state.identityVerificationSessionId &&
+      state.identityVerificationMode === mode &&
+      !state.identityVerifiedAt
+    ) {
+      const session = await this.stripePaymentsService.getIdentitySession(
+        state.identityVerificationSessionId,
+      );
+      if (session.status === "verified") {
+        await this.usersService.markIdentityVerified(session.id);
+        state.identityVerifiedAt = new Date();
+      }
+    }
+    return {
+      identityVerified: Boolean(
+        state.identityVerifiedAt && state.identityVerificationMode === mode,
+      ),
+    };
   }
 
   @Post("connect/onboarding-link")
@@ -144,14 +252,16 @@ export class PaymentsController {
     }
 
     const productIds = await this.findOwnedProductIds(user.id, user.fullName);
-    await this.rentalOrderModel.updateMany(
-      {
-        productId: { $in: productIds },
-        payoutStatus: RentalPayoutStatus.HeldUntilReturn,
-        payoutEligibleAt: { $lte: new Date() },
-      },
-      { payoutStatus: RentalPayoutStatus.Eligible },
-    ).exec();
+    await this.rentalOrderModel
+      .updateMany(
+        {
+          productId: { $in: productIds },
+          payoutStatus: RentalPayoutStatus.HeldUntilReturn,
+          payoutEligibleAt: { $lte: new Date() },
+        },
+        { payoutStatus: RentalPayoutStatus.Eligible },
+      )
+      .exec();
     const payableOrders = await this.rentalOrderModel
       .find({
         productId: { $in: productIds },
@@ -177,10 +287,18 @@ export class PaymentsController {
       userId,
     });
 
-    await this.rentalOrderModel.updateMany(
-      { _id: { $in: payableOrders.map((order) => order._id) }, stripeTransferId: { $exists: false } },
-      { payoutStatus: RentalPayoutStatus.PaidOut, stripeTransferId: transfer.id },
-    ).exec();
+    await this.rentalOrderModel
+      .updateMany(
+        {
+          _id: { $in: payableOrders.map((order) => order._id) },
+          stripeTransferId: { $exists: false },
+        },
+        {
+          payoutStatus: RentalPayoutStatus.PaidOut,
+          stripeTransferId: transfer.id,
+        },
+      )
+      .exec();
 
     return {
       status: "paid_out",

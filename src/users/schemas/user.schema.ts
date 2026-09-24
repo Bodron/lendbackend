@@ -44,6 +44,15 @@ export class User {
   @Prop({ trim: true })
   stripeAccountId?: string;
 
+  @Prop({ trim: true })
+  identityVerificationSessionId?: string;
+
+  @Prop({ enum: ["test", "live"] })
+  identityVerificationMode?: "test" | "live";
+
+  @Prop()
+  identityVerifiedAt?: Date;
+
   @Prop({ default: false })
   stripePayoutsEnabled!: boolean;
 

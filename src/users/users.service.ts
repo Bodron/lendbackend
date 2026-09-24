@@ -14,6 +14,8 @@ export type SafeUser = {
   latitude?: number;
   longitude?: number;
   stripeAccountId?: string;
+  identityVerifiedAt?: Date;
+  identityVerificationMode?: "test" | "live";
   stripePayoutsEnabled?: boolean;
   stripeDetailsSubmitted?: boolean;
   createdAt?: Date;
@@ -203,6 +205,47 @@ export class UsersService {
     return user ? this.toSafeUser(user) : null;
   }
 
+  async setIdentitySession(
+    userId: string,
+    sessionId: string,
+    mode: "test" | "live",
+  ) {
+    return this.userModel
+      .findByIdAndUpdate(userId, {
+        $set: {
+          identityVerificationSessionId: sessionId,
+          identityVerificationMode: mode,
+        },
+        $unset: { identityVerifiedAt: 1 },
+      })
+      .exec();
+  }
+
+  async findByIdentitySession(sessionId: string) {
+    return this.userModel
+      .findOne({ identityVerificationSessionId: sessionId })
+      .exec();
+  }
+
+  async markIdentityVerified(sessionId: string) {
+    return this.userModel
+      .findOneAndUpdate(
+        { identityVerificationSessionId: sessionId },
+        { identityVerifiedAt: new Date() },
+        { new: true },
+      )
+      .exec();
+  }
+
+  async getVerificationState(userId: string) {
+    return this.userModel
+      .findById(userId)
+      .select(
+        "identityVerificationSessionId identityVerificationMode identityVerifiedAt email",
+      )
+      .exec();
+  }
+
   toSafeUser(user: UserDocument): SafeUser {
     const createdAt = user.get("createdAt") as Date | undefined;
     const updatedAt = user.get("updatedAt") as Date | undefined;
@@ -218,6 +261,8 @@ export class UsersService {
       latitude: user.latitude,
       longitude: user.longitude,
       stripeAccountId: user.stripeAccountId,
+      identityVerifiedAt: user.identityVerifiedAt,
+      identityVerificationMode: user.identityVerificationMode,
       stripePayoutsEnabled: user.stripePayoutsEnabled,
       stripeDetailsSubmitted: user.stripeDetailsSubmitted,
       createdAt,

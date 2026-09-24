@@ -124,6 +124,15 @@ export class RentalOrder {
   @Prop({ trim: true })
   stripeTransferId?: string;
 
+  @Prop()
+  authorizationExpiresAt?: Date;
+
+  @Prop()
+  renterVerifiedAt?: Date;
+
+  @Prop()
+  ownerVerifiedAt?: Date;
+
   @Prop({ required: true, min: 0, default: 0 })
   sellerGrossAmount!: number;
 

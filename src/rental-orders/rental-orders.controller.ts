@@ -102,10 +102,13 @@ export class RentalOrdersController {
     @Param("orderId") orderId: string,
     @Body() dto: UpdateRentalOrderStatusDto,
   ) {
-    this.getUserId(authorization);
+    const userId = this.getUserId(authorization);
+    const user = await this.authService.getProfile(userId);
     const order = await this.rentalOrdersService.updateStatus(
       orderId,
       dto.status,
+      user.id,
+      user.fullName,
     );
     this.messagesGateway.broadcastRentalOrder(
       "rental_order.status_changed",
@@ -123,6 +126,24 @@ export class RentalOrdersController {
   ) {
     const userId = this.getUserId(authorization);
     const order = await this.rentalOrdersService.markPaymentAuthorized(
+      userId,
+      orderId,
+    );
+    this.messagesGateway.broadcastRentalOrder(
+      "rental_order.updated",
+      order,
+      await this.rentalOrdersService.findOrderParticipantIds(order),
+    );
+    return order;
+  }
+
+  @Patch(":orderId/renter-ready")
+  async markRenterReady(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("orderId") orderId: string,
+  ) {
+    const userId = this.getUserId(authorization);
+    const order = await this.rentalOrdersService.markRenterReady(
       userId,
       orderId,
     );
