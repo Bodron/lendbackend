@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
@@ -35,6 +36,19 @@ export class MessagesController {
     @Query("roommateInterestId") roommateInterestId?: string,
   ) {
     return this.messagesService.findForProduct(
+      this.getUserId(authorization),
+      productId,
+      roommateInterestId,
+    );
+  }
+
+  @Delete("product/:productId")
+  hideThread(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("productId") productId: string,
+    @Query("roommateInterestId") roommateInterestId?: string,
+  ) {
+    return this.messagesService.hideThread(
       this.getUserId(authorization),
       productId,
       roommateInterestId,

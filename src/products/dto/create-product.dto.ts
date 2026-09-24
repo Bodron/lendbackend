@@ -48,6 +48,12 @@ export class CreateProductDto {
   @Max(100000)
   deposit!: number;
 
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  stockQuantity?: number;
+
   @IsString()
   @IsNotEmpty()
   city!: string;

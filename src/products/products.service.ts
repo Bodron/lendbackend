@@ -1,5 +1,6 @@
 import {
   ForbiddenException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -11,6 +12,7 @@ import { type SafeUser, UsersService } from "../users/users.service";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
 import { mockProducts } from "./mock-products";
+import { peakOccupancy, rentalInterval, withInventoryLock } from "./inventory";
 import {
   Product,
   ProductAvailabilityScope,
@@ -81,6 +83,7 @@ export class ProductsService {
       pricePerDay: dto.pricePerDay,
       pricePerMonth: dto.pricePerMonth,
       deposit: dto.deposit,
+      stockQuantity: dto.stockQuantity ?? 1,
       city: dto.city,
       address: dto.address,
       latitude: dto.latitude,
@@ -109,48 +112,79 @@ export class ProductsService {
       throw new NotFoundException("Produsul nu a fost gasit.");
     }
 
-    const product = await this.productModel.findById(productId).exec();
+    return withInventoryLock(
+      this.productModel,
+      new Types.ObjectId(productId),
+      async () => {
+        const product = await this.productModel.findById(productId).exec();
 
-    if (!product) {
-      throw new NotFoundException("Produsul nu a fost gasit.");
-    }
+        if (!product) {
+          throw new NotFoundException("Produsul nu a fost gasit.");
+        }
 
-    const ownedByUser = product.ownerId
-      ? product.ownerId === owner.id
-      : product.ownerName === owner.fullName;
+        const ownedByUser = product.ownerId
+          ? product.ownerId === owner.id
+          : product.ownerName === owner.fullName;
 
-    if (!ownedByUser) {
-      throw new ForbiddenException("Nu poti edita acest produs.");
-    }
+        if (!ownedByUser) {
+          throw new ForbiddenException("Nu poti edita acest produs.");
+        }
 
-    if (dto.title !== undefined && dto.title !== product.title) {
-      product.title = dto.title;
-      product.slug = await this.createUniqueSlug(dto.title, product._id);
-    }
+        if (
+          dto.stockQuantity !== undefined &&
+          dto.stockQuantity < (product.stockQuantity ?? 1)
+        ) {
+          const orders = await this.rentalOrderModel
+            .find({
+              productId: product._id,
+              status: {
+                $in: [RentalOrderStatus.Confirmed, RentalOrderStatus.Active],
+              },
+            })
+            .exec();
+          if (peakOccupancy(orders.map(rentalInterval)) > dto.stockQuantity) {
+            throw new ConflictException(
+              "Cantitatea este mai mica decat numarul de unitati deja inchiriate.",
+            );
+          }
+        }
 
-    if (dto.category !== undefined) product.category = dto.category;
-    if (dto.categorySlug !== undefined) product.categorySlug = dto.categorySlug;
-    if (dto.description !== undefined) product.description = dto.description;
-    if (dto.pricePerDay !== undefined) product.pricePerDay = dto.pricePerDay;
-    if (dto.pricePerMonth !== undefined)
-      product.pricePerMonth = dto.pricePerMonth;
-    if (dto.deposit !== undefined) product.deposit = dto.deposit;
-    if (dto.city !== undefined) product.city = dto.city;
-    if (dto.address !== undefined) product.address = dto.address;
-    if (dto.latitude !== undefined) product.latitude = dto.latitude;
-    if (dto.longitude !== undefined) product.longitude = dto.longitude;
-    if (dto.availabilityScope !== undefined) {
-      product.availabilityScope =
-        dto.availabilityScope === ProductAvailabilityScope.National
-          ? ProductAvailabilityScope.National
-          : ProductAvailabilityScope.Local;
-    }
-    if (dto.pickupTime !== undefined) product.pickupTime = dto.pickupTime;
-    if (dto.returnTime !== undefined) product.returnTime = dto.returnTime;
-    if (dto.media !== undefined) product.images = dto.media;
-    if (dto.rentalModes !== undefined) product.rentalModes = dto.rentalModes;
+        if (dto.title !== undefined && dto.title !== product.title) {
+          product.title = dto.title;
+          product.slug = await this.createUniqueSlug(dto.title, product._id);
+        }
 
-    return this.withReadableImageUrls(await product.save());
+        if (dto.category !== undefined) product.category = dto.category;
+        if (dto.categorySlug !== undefined)
+          product.categorySlug = dto.categorySlug;
+        if (dto.description !== undefined)
+          product.description = dto.description;
+        if (dto.pricePerDay !== undefined)
+          product.pricePerDay = dto.pricePerDay;
+        if (dto.pricePerMonth !== undefined)
+          product.pricePerMonth = dto.pricePerMonth;
+        if (dto.deposit !== undefined) product.deposit = dto.deposit;
+        if (dto.stockQuantity !== undefined)
+          product.stockQuantity = dto.stockQuantity;
+        if (dto.city !== undefined) product.city = dto.city;
+        if (dto.address !== undefined) product.address = dto.address;
+        if (dto.latitude !== undefined) product.latitude = dto.latitude;
+        if (dto.longitude !== undefined) product.longitude = dto.longitude;
+        if (dto.availabilityScope !== undefined) {
+          product.availabilityScope =
+            dto.availabilityScope === ProductAvailabilityScope.National
+              ? ProductAvailabilityScope.National
+              : ProductAvailabilityScope.Local;
+        }
+        if (dto.pickupTime !== undefined) product.pickupTime = dto.pickupTime;
+        if (dto.returnTime !== undefined) product.returnTime = dto.returnTime;
+        if (dto.media !== undefined) product.images = dto.media;
+        if (dto.rentalModes !== undefined)
+          product.rentalModes = dto.rentalModes;
+
+        return this.withReadableImageUrls(await product.save());
+      },
+    );
   }
 
   async findBySlug(slug: string): Promise<ProductResponse | null> {
@@ -210,6 +244,8 @@ export class ProductsService {
     product: ProductDocument,
   ): Promise<ProductResponse> {
     const productObject = product.toObject();
+    delete productObject.inventoryLockToken;
+    delete productObject.inventoryLockUntil;
     const owner = product.ownerId
       ? await this.usersService.findById(product.ownerId)
       : null;

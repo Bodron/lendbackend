@@ -50,6 +50,12 @@ export class UpdateProductDto {
   deposit?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  stockQuantity?: number;
+
+  @IsOptional()
   @IsString()
   city?: string;
 

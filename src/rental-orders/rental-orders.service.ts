@@ -8,6 +8,12 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
 import { ProductAvailabilityScope } from "../products/schemas/product.schema";
+import {
+  hasCapacity,
+  peakOccupancy,
+  rentalInterval,
+  withInventoryLock,
+} from "../products/inventory";
 import { S3StorageService } from "../storage/s3-storage.service";
 import { UsersService } from "../users/users.service";
 import { StripePaymentsService } from "../payments/stripe-payments.service";
@@ -84,17 +90,22 @@ export class RentalOrdersService {
       rentalMode === "hour"
         ? this.withTime(range.startDate, pickupTime)
         : range.startDate;
+    const savedEndDate =
+      rentalMode !== "hour" && range.endDate <= range.startDate
+        ? new Date(range.startDate.getTime() + 24 * 60 * 60 * 1000)
+        : range.endDate;
     const requestedEnd =
       rentalMode === "hour"
         ? new Date(
             this.withTime(range.endDate, returnTime).getTime() +
               RentalOrdersService.HOURLY_TURNAROUND_BUFFER_MINUTES * 60 * 1000,
           )
-        : range.endDate;
-    const overlappingOrder = await this.findOverlappingOrder(
+        : savedEndDate;
+    const availableStock = await this.hasAvailableStock(
       product._id,
       requestedStart,
       requestedEnd,
+      product.stockQuantity ?? 1,
     );
     const overlappingBlock = await this.findOverlappingBlock(
       product._id,
@@ -102,7 +113,7 @@ export class RentalOrdersService {
       requestedEnd,
     );
 
-    if (overlappingOrder || overlappingBlock) {
+    if (!availableStock || overlappingBlock) {
       throw new ConflictException(
         "Produsul nu este disponibil in perioada aleasa.",
       );
@@ -151,7 +162,7 @@ export class RentalOrdersService {
         imageType: image?.type,
       },
       startDate: range.startDate,
-      endDate: range.endDate,
+      endDate: savedEndDate,
       pickupTime,
       returnTime,
       rentalMode,
@@ -263,30 +274,41 @@ export class RentalOrdersService {
       throw new NotFoundException("Comanda nu a fost gasita.");
     }
 
-    if (blockingStatuses.includes(status)) {
-      const overlappingOrder = await this.findOverlappingOrder(
-        order.productId,
-        order.startDate,
-        order.endDate,
-        order._id,
-      );
-
-      if (overlappingOrder) {
-        throw new ConflictException(
-          "Exista deja o rezervare activa pe aceasta perioada.",
+    return withInventoryLock(this.productModel, order.productId, async () => {
+      const current = await this.findOrderOrFail(orderId);
+      if (blockingStatuses.includes(status)) {
+        const product = await this.findProductOrFail(
+          current.productId.toString(),
         );
+        const interval = rentalInterval(current);
+        const available = await this.hasAvailableStock(
+          current.productId,
+          interval.start,
+          interval.end,
+          product.stockQuantity ?? 1,
+          current._id,
+        );
+        const block = await this.findOverlappingBlock(
+          current.productId,
+          interval.start,
+          interval.end,
+        );
+        if (!available || block)
+          throw new ConflictException(
+            "Nu mai exista unitati disponibile in aceasta perioada.",
+          );
       }
-    }
 
-    order.status = status;
-    if (
-      status === RentalOrderStatus.Completed &&
-      order.paymentStatus === RentalPaymentStatus.Captured
-    ) {
-      order.payoutEligibleAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      order.payoutStatus = RentalPayoutStatus.HeldUntilReturn;
-    }
-    return order.save();
+      current.status = status;
+      if (
+        status === RentalOrderStatus.Completed &&
+        current.paymentStatus === RentalPaymentStatus.Captured
+      ) {
+        current.payoutEligibleAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        current.payoutStatus = RentalPayoutStatus.HeldUntilReturn;
+      }
+      return current.save();
+    });
   }
 
   async markPaymentAuthorized(
@@ -380,24 +402,35 @@ export class RentalOrdersService {
       throw new BadRequestException("Cererea nu are plata confirmata inca.");
     }
 
-    const overlappingOrder = await this.findOverlappingOrder(
-      order.productId,
-      order.startDate,
-      order.endDate,
-      order._id,
-    );
-
-    if (overlappingOrder) {
-      throw new ConflictException(
-        "Exista deja o rezervare activa pe aceasta perioada.",
+    return withInventoryLock(this.productModel, order.productId, async () => {
+      const current = await this.findOrderOrFail(orderId);
+      if (current.status !== RentalOrderStatus.Pending)
+        throw new BadRequestException("Cererea nu mai poate fi acceptata.");
+      const product = await this.findProductOrFail(
+        current.productId.toString(),
       );
-    }
-
-    order.status = RentalOrderStatus.Confirmed;
-    order.paymentStatus = RentalPaymentStatus.Captured;
-    order.payoutStatus = RentalPayoutStatus.PendingOnboarding;
-
-    return order.save();
+      const interval = rentalInterval(current);
+      const available = await this.hasAvailableStock(
+        current.productId,
+        interval.start,
+        interval.end,
+        product.stockQuantity ?? 1,
+        current._id,
+      );
+      const block = await this.findOverlappingBlock(
+        current.productId,
+        interval.start,
+        interval.end,
+      );
+      if (!available || block)
+        throw new ConflictException(
+          "Nu mai exista unitati disponibile in aceasta perioada.",
+        );
+      current.status = RentalOrderStatus.Confirmed;
+      current.paymentStatus = RentalPaymentStatus.Captured;
+      current.payoutStatus = RentalPayoutStatus.PendingOnboarding;
+      return current.save();
+    });
   }
 
   async rejectOrder(
@@ -460,14 +493,52 @@ export class RentalOrdersService {
       throw new NotFoundException("Comanda nu a fost gasita.");
     }
 
-    const scheduleChanged =
-      order.pickupTime !== dto.pickupTime ||
-      order.returnTime !== dto.returnTime;
-
-    order.pickupTime = dto.pickupTime;
-    order.returnTime = dto.returnTime;
-
-    const savedOrder = await order.save();
+    const { savedOrder, scheduleChanged } = await withInventoryLock(
+      this.productModel,
+      order.productId,
+      async () => {
+        const current = await this.findOrderOrFail(orderId);
+        if (
+          [
+            RentalOrderStatus.Completed,
+            RentalOrderStatus.Cancelled,
+            RentalOrderStatus.Rejected,
+          ].includes(current.status)
+        ) {
+          throw new BadRequestException(
+            "Programul nu mai poate fi modificat pentru aceasta comanda.",
+          );
+        }
+        const changed =
+          current.pickupTime !== dto.pickupTime ||
+          current.returnTime !== dto.returnTime;
+        current.pickupTime = dto.pickupTime;
+        current.returnTime = dto.returnTime;
+        if (changed && blockingStatuses.includes(current.status)) {
+          const currentProduct = await this.findProductOrFail(
+            current.productId.toString(),
+          );
+          const interval = rentalInterval(current);
+          const available = await this.hasAvailableStock(
+            current.productId,
+            interval.start,
+            interval.end,
+            currentProduct.stockQuantity ?? 1,
+            current._id,
+          );
+          const block = await this.findOverlappingBlock(
+            current.productId,
+            interval.start,
+            interval.end,
+          );
+          if (!available || block)
+            throw new ConflictException(
+              "Nu mai exista unitati disponibile in acest interval.",
+            );
+        }
+        return { savedOrder: await current.save(), scheduleChanged: changed };
+      },
+    );
 
     if (scheduleChanged && order.renterId !== ownerId) {
       void this.pushService.sendRentalScheduleUpdated(
@@ -492,8 +563,6 @@ export class RentalOrdersService {
         .find({
           productId: product._id,
           status: { $in: blockingStatuses },
-          startDate: { $lt: range.endDate },
-          endDate: { $gt: range.startDate },
         })
         .sort({ startDate: 1 })
         .exec(),
@@ -509,13 +578,14 @@ export class RentalOrdersService {
 
     const unavailableDates = new Set<string>();
 
-    for (const order of orders) {
-      const unavailableStart =
-        order.startDate > range.startDate ? order.startDate : range.startDate;
-      const unavailableEnd =
-        order.endDate < range.endDate ? order.endDate : range.endDate;
-
-      for (const date of this.eachDate(unavailableStart, unavailableEnd)) {
+    const intervals = orders.map(rentalInterval);
+    for (const date of this.eachDate(range.startDate, range.endDate)) {
+      const next = new Date(date.getTime() + 24 * 60 * 60 * 1000);
+      // An occupied instant marks the day full only when all units are booked.
+      const relevant = intervals.filter(
+        (item) => item.start < next && item.end > date,
+      );
+      if (peakOccupancy(relevant) >= (product.stockQuantity ?? 1)) {
         unavailableDates.add(this.toDateKey(date));
       }
     }
@@ -535,15 +605,21 @@ export class RentalOrdersService {
       productId,
       from: this.toDateKey(range.startDate),
       to: this.toDateKey(range.endDate),
-      isAvailable: orders.length === 0 && blocks.length === 0,
+      isAvailable: unavailableDates.size === 0,
       unavailableDates: [...unavailableDates].sort(),
       reservations: orders.map((order) => ({
         id: order._id.toString(),
         startDate: this.toDateKey(order.startDate),
-        endDate: this.toDateKey(order.endDate),
+        endDate: this.toDateKey(
+          order.rentalMode === "hour"
+            ? order.endDate
+            : rentalInterval(order).end,
+        ),
         pickupTime: order.pickupTime,
         returnTime: order.returnTime,
         status: order.status,
+        occupiedFrom: rentalInterval(order).start.toISOString(),
+        occupiedUntil: rentalInterval(order).end.toISOString(),
       })),
       manualBlocks: blocks.map((block) => ({
         id: block._id.toString(),
@@ -567,29 +643,31 @@ export class RentalOrdersService {
     }
 
     const range = this.parseDateRange(dto.startDate, dto.endDate);
-    const [overlappingOrder, overlappingBlock] = await Promise.all([
-      this.findOverlappingOrder(product._id, range.startDate, range.endDate),
-      this.findOverlappingBlock(product._id, range.startDate, range.endDate),
-    ]);
+    return withInventoryLock(this.productModel, product._id, async () => {
+      const [overlappingOrder, overlappingBlock] = await Promise.all([
+        this.hasOverlappingOrder(product._id, range.startDate, range.endDate),
+        this.findOverlappingBlock(product._id, range.startDate, range.endDate),
+      ]);
 
-    if (overlappingOrder) {
-      throw new ConflictException(
-        "Exista deja o inchiriere in perioada aleasa.",
-      );
-    }
+      if (overlappingOrder) {
+        throw new ConflictException(
+          "Exista deja o inchiriere in perioada aleasa.",
+        );
+      }
 
-    if (overlappingBlock) {
-      throw new ConflictException(
-        "Exista deja un blocaj manual in perioada aleasa.",
-      );
-    }
+      if (overlappingBlock) {
+        throw new ConflictException(
+          "Exista deja un blocaj manual in perioada aleasa.",
+        );
+      }
 
-    return this.availabilityBlockModel.create({
-      productId: product._id,
-      ownerId,
-      startDate: range.startDate,
-      endDate: range.endDate,
-      reason: dto.reason?.trim(),
+      return this.availabilityBlockModel.create({
+        productId: product._id,
+        ownerId,
+        startDate: range.startDate,
+        endDate: range.endDate,
+        reason: dto.reason?.trim(),
+      });
     });
   }
 
@@ -606,24 +684,49 @@ export class RentalOrdersService {
       throw new NotFoundException("Blocajul nu a fost gasit.");
     }
 
-    return { deleted: true, id: block._id.toString() };
+    return {
+      deleted: true,
+      id: block._id.toString(),
+      productId: block.productId.toString(),
+    };
   }
 
-  private async findOverlappingOrder(
+  private async hasOverlappingOrder(
     productId: Types.ObjectId,
     startDate: Date,
     endDate: Date,
-    excludeOrderId?: Types.ObjectId,
-  ): Promise<RentalOrderDocument | null> {
-    return this.rentalOrderModel
-      .findOne({
-        ...(excludeOrderId ? { _id: { $ne: excludeOrderId } } : {}),
+  ): Promise<boolean> {
+    const orders = await this.rentalOrderModel
+      .find({
         productId,
         status: { $in: blockingStatuses },
-        startDate: { $lt: endDate },
-        endDate: { $gt: startDate },
       })
       .exec();
+    return orders.some((order) => {
+      const interval = rentalInterval(order);
+      return interval.start < endDate && interval.end > startDate;
+    });
+  }
+
+  private async hasAvailableStock(
+    productId: Types.ObjectId,
+    startDate: Date,
+    endDate: Date,
+    stock: number,
+    excludeOrderId?: Types.ObjectId,
+  ): Promise<boolean> {
+    const orders = await this.rentalOrderModel
+      .find({
+        productId,
+        status: { $in: blockingStatuses },
+        ...(excludeOrderId ? { _id: { $ne: excludeOrderId } } : {}),
+      })
+      .exec();
+    return hasCapacity(
+      orders.map(rentalInterval),
+      { start: startDate, end: endDate },
+      stock,
+    );
   }
 
   private async findOrderOrFail(orderId: string): Promise<RentalOrderDocument> {

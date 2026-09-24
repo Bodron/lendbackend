@@ -90,6 +90,15 @@ export class Product {
   @Prop({ required: true, default: true })
   isAvailable!: boolean;
 
+  @Prop({ required: true, min: 1, max: 100, default: 1 })
+  stockQuantity!: number;
+
+  @Prop({ select: false })
+  inventoryLockToken?: string;
+
+  @Prop({ select: false })
+  inventoryLockUntil?: Date;
+
   @Prop({
     type: [
       {

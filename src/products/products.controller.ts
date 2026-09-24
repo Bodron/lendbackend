@@ -10,6 +10,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
+import { MessagesGateway } from "../messages/messages.gateway";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
 import { ProductsService } from "./products.service";
@@ -19,6 +20,7 @@ export class ProductsController {
   constructor(
     private readonly productsService: ProductsService,
     private readonly authService: AuthService,
+    private readonly messagesGateway: MessagesGateway,
   ) {}
 
   @Get()
@@ -48,7 +50,9 @@ export class ProductsController {
     @Body() dto: UpdateProductDto,
   ) {
     const user = await this.getUser(authorization);
-    return this.productsService.update(user, id, dto);
+    const product = await this.productsService.update(user, id, dto);
+    this.messagesGateway.broadcastAvailability(id);
+    return product;
   }
 
   @Post("seed")

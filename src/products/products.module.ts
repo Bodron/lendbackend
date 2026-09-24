@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import { AuthModule } from "../auth/auth.module";
 import { CategoriesModule } from "../categories/categories.module";
+import { MessagesModule } from "../messages/messages.module";
 import { StorageModule } from "../storage/storage.module";
 import { UsersModule } from "../users/users.module";
 import {
@@ -20,6 +21,7 @@ import { Product, ProductSchema } from "./schemas/product.schema";
     ]),
     AuthModule,
     CategoriesModule,
+    MessagesModule,
     StorageModule,
     UsersModule,
   ],

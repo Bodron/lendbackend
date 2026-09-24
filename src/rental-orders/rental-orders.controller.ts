@@ -72,21 +72,28 @@ export class RentalOrdersController {
   ) {
     const userId = this.getUserId(authorization);
     const user = await this.authService.getProfile(userId);
-    return this.rentalOrdersService.createAvailabilityBlock(
+    const block = await this.rentalOrdersService.createAvailabilityBlock(
       userId,
       user.fullName,
       productId,
       dto,
     );
+    this.messagesGateway.broadcastAvailability(productId);
+    return block;
   }
 
   @Delete("availability-blocks/:blockId")
-  deleteAvailabilityBlock(
+  async deleteAvailabilityBlock(
     @Headers("authorization") authorization: string | undefined,
     @Param("blockId") blockId: string,
   ) {
     const userId = this.getUserId(authorization);
-    return this.rentalOrdersService.deleteAvailabilityBlock(userId, blockId);
+    const result = await this.rentalOrdersService.deleteAvailabilityBlock(
+      userId,
+      blockId,
+    );
+    this.messagesGateway.broadcastAvailability(result.productId);
+    return result;
   }
 
   @Patch(":orderId/status")
@@ -105,6 +112,7 @@ export class RentalOrdersController {
       order,
       [order.renterId, this.getUserId(authorization)],
     );
+    this.messagesGateway.broadcastAvailability(order.productId.toString());
     return order;
   }
 
@@ -163,6 +171,7 @@ export class RentalOrdersController {
       order,
       [order.renterId, user.id],
     );
+    this.messagesGateway.broadcastAvailability(order.productId.toString());
     return order;
   }
 
@@ -183,6 +192,7 @@ export class RentalOrdersController {
       order,
       [order.renterId, user.id],
     );
+    this.messagesGateway.broadcastAvailability(order.productId.toString());
     return order;
   }
 
@@ -204,6 +214,7 @@ export class RentalOrdersController {
       order.renterId,
       user.id,
     ]);
+    this.messagesGateway.broadcastAvailability(order.productId.toString());
     return order;
   }
 

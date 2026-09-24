@@ -22,6 +22,9 @@ export class Message {
 
   @Prop({ default: false })
   read!: boolean;
+
+  @Prop({ type: [String], default: [], select: false })
+  hiddenForUserIds!: string[];
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);

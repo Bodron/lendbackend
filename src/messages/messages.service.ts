@@ -57,6 +57,7 @@ export class MessagesService {
         productId: product._id,
         ...this.threadScope(roommateInterestId),
         $or: [{ senderId: userId }, { recipientId: userId }],
+        hiddenForUserIds: { $ne: userId },
       })
       .sort({ createdAt: 1 })
       .exec();
@@ -68,6 +69,7 @@ export class MessagesService {
           recipientId: userId,
           read: false,
           ...this.threadScope(roommateInterestId),
+          hiddenForUserIds: { $ne: userId },
         },
         { $set: { read: true } },
       )
@@ -170,7 +172,10 @@ export class MessagesService {
 
   async findThreads(userId: string) {
     const messages = await this.messageModel
-      .find({ $or: [{ senderId: userId }, { recipientId: userId }] })
+      .find({
+        $or: [{ senderId: userId }, { recipientId: userId }],
+        hiddenForUserIds: { $ne: userId },
+      })
       .sort({ createdAt: -1 })
       .exec();
     const latestByThread = new Map<string, MessageDocument>();
@@ -196,6 +201,7 @@ export class MessagesService {
             recipientId: userId,
             read: false,
             ...scope,
+            hiddenForUserIds: { $ne: userId },
           }),
           this.productModel
             .findById(productId)
@@ -229,6 +235,33 @@ export class MessagesService {
         };
       }),
     );
+  }
+
+  async hideThread(
+    userId: string,
+    productId: string,
+    roommateInterestId?: string,
+  ) {
+    if (
+      !Types.ObjectId.isValid(productId) ||
+      (roommateInterestId && !Types.ObjectId.isValid(roommateInterestId))
+    ) {
+      throw new NotFoundException("Conversatia nu a fost gasita.");
+    }
+
+    await this.messageModel
+      .updateMany(
+        {
+          productId: new Types.ObjectId(productId),
+          ...this.threadScope(roommateInterestId),
+          $or: [{ senderId: userId }, { recipientId: userId }],
+          hiddenForUserIds: { $ne: userId },
+        },
+        { $addToSet: { hiddenForUserIds: userId } },
+      )
+      .exec();
+
+    return { deleted: true };
   }
 
   async create(userId: string, dto: CreateMessageDto) {
