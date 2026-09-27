@@ -140,7 +140,6 @@ export class PaymentsController {
     if (state.identityVerifiedAt && state.identityVerificationMode === mode) {
       return { verified: true, url: "" };
     }
-    await this.assertIdentityEligible(userId);
     if (
       state.identityVerificationSessionId &&
       state.identityVerificationMode === mode
@@ -190,6 +189,7 @@ export class PaymentsController {
     const state = await this.usersService.getVerificationState(userId);
     if (!state) throw new UnauthorizedException();
     const mode = this.stripePaymentsService.isLiveMode() ? "live" : "test";
+    let processing = false;
     if (
       state.identityVerificationSessionId &&
       state.identityVerificationMode === mode &&
@@ -201,18 +201,22 @@ export class PaymentsController {
       if (session.status === "verified") {
         await this.usersService.markIdentityVerified(session.id);
         state.identityVerifiedAt = new Date();
+      } else {
+        processing = session.status === "processing";
       }
     }
     return {
       identityVerified: Boolean(
         state.identityVerifiedAt && state.identityVerificationMode === mode,
       ),
+      processing,
     };
   }
 
   @Post("connect/onboarding-link")
   async createConnectOnboardingLink(
     @Headers("authorization") authorization: string | undefined,
+    @Body() requestPayoutDto: RequestPayoutDto,
   ) {
     const userId = this.getUserId(authorization);
     const user = await this.authService.getProfile(userId);
@@ -224,7 +228,7 @@ export class PaymentsController {
         fullName: user.fullName,
         phone: user.phone,
         city: user.city,
-        businessType: "individual",
+        businessType: requestPayoutDto?.businessType ?? "individual",
       });
       accountId = account.id;
       await this.usersService.updateStripeAccount({
@@ -237,6 +241,56 @@ export class PaymentsController {
       accountId,
     });
 
+    return { url: link.url };
+  }
+
+  @Get("connect/status")
+  async connectStatus(@Headers("authorization") authorization?: string) {
+    const userId = this.getUserId(authorization);
+    const user = await this.authService.getProfile(userId);
+    if (!user.stripeAccountId) {
+      return {
+        connected: false,
+        payoutsEnabled: false,
+        detailsSubmitted: false,
+        currentlyDue: 0,
+        pastDue: 0,
+        pendingVerification: 0,
+        errors: [],
+      };
+    }
+
+    const account = await this.stripePaymentsService.getAccount(
+      user.stripeAccountId,
+    );
+    await this.usersService.updateStripeAccount({
+      userId,
+      stripeAccountId: user.stripeAccountId,
+      stripePayoutsEnabled: account.payouts_enabled,
+      stripeDetailsSubmitted: account.details_submitted,
+    });
+    const requirements = account.requirements;
+    return {
+      connected: true,
+      payoutsEnabled: account.payouts_enabled,
+      detailsSubmitted: account.details_submitted,
+      currentlyDue: requirements?.currently_due?.length ?? 0,
+      pastDue: requirements?.past_due?.length ?? 0,
+      pendingVerification: requirements?.pending_verification?.length ?? 0,
+      errors: (requirements?.errors ?? []).map((error) => error.reason),
+    };
+  }
+
+  @Post("connect/login-link")
+  async connectLoginLink(@Headers("authorization") authorization?: string) {
+    const userId = this.getUserId(authorization);
+    const user = await this.authService.getProfile(userId);
+    if (!user.stripeAccountId) {
+      throw new BadRequestException("Contul pentru incasari nu este configurat.");
+    }
+    const link = await this.stripePaymentsService.createExpressLoginLink(
+      user.stripeAccountId,
+    );
     return { url: link.url };
   }
 
@@ -346,33 +400,6 @@ export class PaymentsController {
       .exec();
 
     return products.map((product) => product._id);
-  }
-
-  private async assertIdentityEligible(userId: string) {
-    const paidViewing = await this.viewingModel.exists({
-      status: "awaiting_verification",
-      paidAt: { $exists: true },
-      $or: [{ visitorId: userId }, { ownerId: userId }],
-    });
-    if (paidViewing) return;
-    const renterOrder = await this.rentalOrderModel.exists({
-      renterId: userId,
-      status: "pending",
-      paymentStatus: RentalPaymentStatus.Authorized,
-    });
-    if (renterOrder) return;
-    const profile = await this.authService.getProfile(userId);
-    const productIds = await this.findOwnedProductIds(userId, profile.fullName);
-    const ownerOrder = await this.rentalOrderModel.exists({
-      productId: { $in: productIds },
-      status: "pending",
-      paymentStatus: RentalPaymentStatus.Authorized,
-    });
-    if (!ownerOrder) {
-      throw new BadRequestException(
-        "Verificarea identitatii se deschide dupa plata vizionarii sau autorizarea unei inchirieri.",
-      );
-    }
   }
 
   private getUserId(authorization?: string): string {

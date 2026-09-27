@@ -249,6 +249,10 @@ export class StripePaymentsService {
     return this.getStripe().accounts.retrieve(accountId);
   }
 
+  async createExpressLoginLink(accountId: string) {
+    return this.getStripe().accounts.createLoginLink(accountId);
+  }
+
   async createTransfer(input: {
     amountRon: number;
     destinationAccountId: string;
