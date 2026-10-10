@@ -123,6 +123,79 @@ export class PushService {
     }
   }
 
+  async sendViewingUpdate(
+    recipientId: string,
+    viewingId: string,
+    productId: string,
+    productTitle: string,
+    event:
+      | "requested"
+      | "accepted"
+      | "counter_proposed"
+      | "proposal_accepted"
+      | "proposal_declined"
+      | "rejected"
+      | "cancelled",
+  ) {
+    if (!this.app) return;
+    const title = {
+      requested: "Cerere noua de vizionare",
+      accepted: "Vizionarea a fost acceptata",
+      counter_proposed: "Proprietarul a propus alta ora",
+      proposal_accepted: "Noua ora a fost acceptata",
+      proposal_declined: "Noua ora a fost refuzata",
+      rejected: "Cererea de vizionare a fost respinsa",
+      cancelled: "Vizionarea a fost anulata",
+    }[event];
+    try {
+      const devices = await this.devices
+        .find({ userId: recipientId })
+        .select("token")
+        .lean()
+        .exec();
+      for (let offset = 0; offset < devices.length; offset += 500) {
+        const tokens = devices
+          .slice(offset, offset + 500)
+          .map((device) => device.token);
+        const result = await getMessaging(this.app).sendEachForMulticast({
+          tokens,
+          notification: {
+            title,
+            body: `Deschide anuntul "${productTitle.slice(0, 100)}" pentru detalii.`,
+          },
+          data: {
+            type: "viewing_update",
+            recipientId,
+            viewingId,
+            productId,
+            productTitle: productTitle.slice(0, 150),
+          },
+          apns: {
+            headers: { "apns-push-type": "alert", "apns-priority": "10" },
+            payload: { aps: { sound: "default", threadId: `viewing:${productId}` } },
+          },
+          android: { priority: "high", notification: { sound: "default" } },
+        });
+        for (let i = 0; i < result.responses.length; i++) {
+          const error = result.responses[i].error;
+          if (!error) continue;
+          if (
+            [
+              "messaging/registration-token-not-registered",
+              "messaging/invalid-registration-token",
+            ].includes(error.code)
+          ) {
+            await this.remove(recipientId, tokens[i]);
+          } else {
+            this.logger.warn(`Viewing push delivery failed: ${error.code}`);
+          }
+        }
+      }
+    } catch {
+      this.logger.error("Viewing push failed; viewing remains available in app.");
+    }
+  }
+
   async sendRentalRequest(
     recipientId: string,
     rentalOrderId: string,

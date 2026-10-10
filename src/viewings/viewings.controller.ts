@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import { RequestViewingDto } from "./dto/request-viewing.dto";
+import { ProposeViewingDto } from "./dto/propose-viewing.dto";
 import { ViewingsService } from "./viewings.service";
 
 @Controller("viewings")
@@ -46,6 +47,31 @@ export class ViewingsController {
     @Param("id") id: string,
   ) {
     return this.service.reject(this.userId(authorization), id);
+  }
+
+  @Patch(":id/propose")
+  propose(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("id") id: string,
+    @Body() body: ProposeViewingDto,
+  ) {
+    return this.service.propose(this.userId(authorization), id, body?.startsAt);
+  }
+
+  @Patch(":id/accept-proposal")
+  acceptProposal(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("id") id: string,
+  ) {
+    return this.service.acceptProposal(this.userId(authorization), id);
+  }
+
+  @Patch(":id/decline-proposal")
+  declineProposal(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("id") id: string,
+  ) {
+    return this.service.declineProposal(this.userId(authorization), id);
   }
 
   @Patch(":id/complete")

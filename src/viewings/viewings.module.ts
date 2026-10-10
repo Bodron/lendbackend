@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import { AuthModule } from "../auth/auth.module";
 import { PaymentsModule } from "../payments/payments.module";
+import { PushModule } from "../push/push.module";
 import { Product, ProductSchema } from "../products/schemas/product.schema";
 import { UsersModule } from "../users/users.module";
 import { Viewing, ViewingSchema } from "./schemas/viewing.schema";
@@ -13,6 +14,7 @@ import { ViewingsService } from "./viewings.service";
     AuthModule,
     UsersModule,
     PaymentsModule,
+    PushModule,
     MongooseModule.forFeature([
       { name: Product.name, schema: ProductSchema },
       { name: Viewing.name, schema: ViewingSchema },

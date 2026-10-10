@@ -11,6 +11,7 @@ import {
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { StripePaymentsService } from "../payments/stripe-payments.service";
+import { PushService } from "../push/push.service";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
 import { UsersService } from "../users/users.service";
 import { RequestViewingDto } from "./dto/request-viewing.dto";
@@ -29,6 +30,7 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
     private readonly productModel: Model<ProductDocument>,
     private readonly usersService: UsersService,
     private readonly stripePaymentsService: StripePaymentsService,
+    private readonly pushService?: PushService,
   ) {}
 
   onModuleInit() {
@@ -83,6 +85,7 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
       status: {
         $in: [
           "requested",
+          "counter_proposed",
           "awaiting_payment",
           "awaiting_verification",
           "confirmed",
@@ -91,7 +94,7 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
     });
     if (duplicate)
       throw new ConflictException("Ai deja o cerere pentru aceasta ora.");
-    return this.viewingModel.create({
+    const viewing = await this.viewingModel.create({
       productId: product._id,
       productTitle: product.title,
       ownerId: product.ownerId,
@@ -102,6 +105,8 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
       priceRon: product.viewingPriceRon ?? 0,
       serviceFeeRon: Math.round((product.viewingPriceRon ?? 0) * 0.05),
     });
+    await this.notify(viewing, viewing.ownerId, "requested");
+    return viewing;
   }
 
   async mine(userId: string) {
@@ -117,43 +122,128 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
     if (viewing.ownerId !== ownerId) throw new ForbiddenException();
     if (viewing.status !== "requested")
       throw new ConflictException("Cererea nu mai poate fi acceptata.");
-    if (viewing.startsAt.getTime() <= Date.now())
+    const updated = await this.approve(viewing, "requested", viewing.startsAt);
+    await this.notify(updated, updated.visitorId, "accepted");
+    return updated;
+  }
+
+  async propose(ownerId: string, id: string, startsAtValue?: string) {
+    const viewing = await this.find(id);
+    if (viewing.ownerId !== ownerId) throw new ForbiddenException();
+    if (!["requested", "counter_proposed"].includes(viewing.status))
+      throw new ConflictException("Ora acestei vizionari nu mai poate fi schimbata.");
+    const startsAt = new Date(startsAtValue ?? "");
+    if (
+      !Number.isFinite(startsAt.getTime()) ||
+      startsAt.getTime() < Date.now() + 2 * 60 * 60 * 1000 ||
+      startsAt.getTime() > Date.now() + 90 * 24 * 60 * 60 * 1000
+    )
+      throw new BadRequestException(
+        "Propune o data intre doua ore si 90 de zile de acum.",
+      );
+    if (startsAt.getTime() === viewing.startsAt.getTime())
+      throw new BadRequestException("Alege o alta ora decat cea solicitata.");
+    const overlapping = await this.viewingModel.exists({
+      _id: { $ne: viewing._id },
+      productId: viewing.productId,
+      startsAt,
+      status: { $in: ["awaiting_payment", "awaiting_verification", "confirmed"] },
+    });
+    if (overlapping)
+      throw new ConflictException("Aceasta ora este deja rezervata.");
+    await this.assertOwnerCanReceivePayment(viewing);
+    const expiresAt = new Date(
+      Math.min(Date.now() + 24 * 60 * 60 * 1000, startsAt.getTime() - 60 * 60 * 1000),
+    );
+    const updated = await this.viewingModel
+      .findOneAndUpdate(
+        { _id: viewing._id, status: viewing.status },
+        {
+          $set: {
+            status: "counter_proposed",
+            proposedStartsAt: startsAt,
+            proposalExpiresAt: expiresAt,
+          },
+        },
+        { new: true },
+      )
+      .exec();
+    if (!updated) throw new ConflictException("Cererea a fost deja modificata.");
+    await this.notify(updated, updated.visitorId, "counter_proposed");
+    return updated;
+  }
+
+  async acceptProposal(visitorId: string, id: string) {
+    const viewing = await this.find(id);
+    if (viewing.visitorId !== visitorId) throw new ForbiddenException();
+    if (viewing.status !== "counter_proposed" || !viewing.proposedStartsAt)
+      throw new ConflictException("Nu exista o propunere de acceptat.");
+    if (!viewing.proposalExpiresAt || viewing.proposalExpiresAt <= new Date())
+      throw new ConflictException("Propunerea a expirat. Cere o alta ora.");
+    const updated = await this.approve(
+      viewing,
+      "counter_proposed",
+      viewing.proposedStartsAt,
+    );
+    await this.notify(updated, updated.ownerId, "proposal_accepted");
+    return updated;
+  }
+
+  async declineProposal(visitorId: string, id: string) {
+    const viewing = await this.find(id);
+    if (viewing.visitorId !== visitorId) throw new ForbiddenException();
+    const updated = await this.viewingModel
+      .findOneAndUpdate(
+        { _id: viewing._id, status: "counter_proposed" },
+        {
+          $set: { status: "cancelled" },
+          $unset: { proposedStartsAt: "", proposalExpiresAt: "" },
+        },
+        { new: true },
+      )
+      .exec();
+    if (!updated) throw new ConflictException("Propunerea a fost deja modificata.");
+    await this.notify(updated, updated.ownerId, "proposal_declined");
+    return updated;
+  }
+
+  private async approve(
+    viewing: ViewingDocument,
+    expectedStatus: "requested" | "counter_proposed",
+    startsAt: Date,
+  ) {
+    if (startsAt.getTime() <= Date.now() + 60 * 60 * 1000)
       throw new ConflictException("Ora vizionarii a trecut.");
     const overlapping = await this.viewingModel.exists({
       _id: { $ne: viewing._id },
       productId: viewing.productId,
-      startsAt: viewing.startsAt,
+      startsAt,
       status: {
         $in: ["awaiting_payment", "awaiting_verification", "confirmed"],
       },
     });
     if (overlapping)
       throw new ConflictException("Aceasta ora este deja rezervata.");
-    if (viewing.priceRon > 0) {
-      const owner = await this.usersService.findById(ownerId);
-      if (!owner?.stripeAccountId)
-        throw new BadRequestException(
-          "Configureaza Stripe Connect inainte de a accepta o vizionare cu plata.",
-        );
-      const account = await this.stripePaymentsService.getAccount(
-        owner.stripeAccountId,
-      );
-      if (account.capabilities?.transfers !== "active")
-        throw new BadRequestException(
-          "Contul Stripe Connect nu este inca pregatit sa primeasca plati.",
-        );
-    }
+    await this.assertOwnerCanReceivePayment(viewing);
     const status = viewing.priceRon > 0 ? "awaiting_payment" : "confirmed";
     let updated: ViewingDocument | null;
     try {
       updated = await this.viewingModel
         .findOneAndUpdate(
-          { _id: viewing._id, status: "requested" },
+          {
+            _id: viewing._id,
+            status: expectedStatus,
+            ...(expectedStatus === "counter_proposed"
+              ? { proposedStartsAt: startsAt, proposalExpiresAt: { $gt: new Date() } }
+              : {}),
+          },
           {
             $set: {
               status,
-              reservedSlot: `${viewing.productId}-${viewing.startsAt.toISOString()}`,
+              startsAt,
+              reservedSlot: `${viewing.productId}-${startsAt.toISOString()}`,
             },
+            $unset: { proposedStartsAt: "", proposalExpiresAt: "" },
           },
           { new: true },
         )
@@ -168,18 +258,38 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
     return updated;
   }
 
+  private async assertOwnerCanReceivePayment(viewing: ViewingDocument) {
+    if (viewing.priceRon <= 0) return;
+    const owner = await this.usersService.findById(viewing.ownerId);
+    if (!owner?.stripeAccountId)
+      throw new BadRequestException(
+        "Configureaza Stripe Connect inainte de a accepta o vizionare cu plata.",
+      );
+    const account = await this.stripePaymentsService.getAccount(
+      owner.stripeAccountId,
+    );
+    if (account.capabilities?.transfers !== "active")
+      throw new BadRequestException(
+        "Contul Stripe Connect nu este inca pregatit sa primeasca plati.",
+      );
+  }
+
   async reject(ownerId: string, id: string) {
     const viewing = await this.find(id);
     if (viewing.ownerId !== ownerId) throw new ForbiddenException();
     const updated = await this.viewingModel
       .findOneAndUpdate(
-        { _id: viewing._id, status: "requested" },
-        { $set: { status: "rejected" } },
+        { _id: viewing._id, status: { $in: ["requested", "counter_proposed"] } },
+        {
+          $set: { status: "rejected" },
+          $unset: { proposedStartsAt: "", proposalExpiresAt: "" },
+        },
         { new: true },
       )
       .exec();
     if (!updated)
       throw new ConflictException("Cererea nu mai poate fi respinsa.");
+    await this.notify(updated, updated.visitorId, "rejected");
     return updated;
   }
 
@@ -276,40 +386,83 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
           .exec();
         if (!claimed)
           throw new ConflictException("Vizionarea a fost deja modificata.");
-        return this.finishViewingRefund(claimed);
+        const refunded = await this.finishViewingRefund(claimed);
+        if (refunded)
+          await this.notify(
+            refunded,
+            viewing.ownerId === userId ? viewing.visitorId : viewing.ownerId,
+            "cancelled",
+          );
+        return refunded;
       }
-      return this.viewingModel
+      const cancelled = await this.viewingModel
         .findOneAndUpdate(
           { _id: viewing._id, status: viewing.status },
           { $set: { status: "cancelled" }, $unset: { reservedSlot: "" } },
           { new: true },
         )
         .exec();
+      if (cancelled)
+        await this.notify(
+          cancelled,
+          viewing.ownerId === userId ? viewing.visitorId : viewing.ownerId,
+          "cancelled",
+        );
+      return cancelled;
     }
-    if (!["requested", "awaiting_payment"].includes(viewing.status))
+    if (!["requested", "counter_proposed", "awaiting_payment"].includes(viewing.status))
       throw new ConflictException("Vizionarea nu mai poate fi anulata.");
     if (viewing.stripePaymentIntentId) {
       const intent = await this.stripePaymentsService.getPaymentIntent(
         viewing.stripePaymentIntentId,
       );
-      if (intent.status === "succeeded")
-        throw new ConflictException(
-          "Plata a fost incasata. Contacteaza suportul pentru anulare.",
-        );
+      if (intent.status === "succeeded") {
+        if (viewing.ownerId !== userId)
+          throw new ConflictException(
+            "Plata a fost incasata. Contacteaza suportul pentru anulare.",
+          );
+        const claimed = await this.viewingModel
+          .findOneAndUpdate(
+            { _id: viewing._id, status: "awaiting_payment" },
+            { $set: { status: "refund_pending" } },
+            { new: true },
+          )
+          .exec();
+        if (!claimed)
+          throw new ConflictException("Vizionarea a fost deja modificata.");
+        const refunded = await this.finishViewingRefund(claimed);
+        if (refunded)
+          await this.notify(refunded, viewing.visitorId, "cancelled");
+        return refunded;
+      }
       if (intent.status !== "canceled") {
         await this.stripePaymentsService.cancelPaymentIntent(intent.id);
       }
     }
-    return this.viewingModel
+    const cancelled = await this.viewingModel
       .findOneAndUpdate(
         {
           _id: viewing._id,
-          status: { $in: ["requested", "awaiting_payment"] },
+          status: { $in: ["requested", "counter_proposed", "awaiting_payment"] },
         },
-        { $set: { status: "cancelled" }, $unset: { reservedSlot: "" } },
+        {
+          $set: { status: "cancelled" },
+          $unset: {
+            reservedSlot: "",
+            proposedStartsAt: "",
+            proposalExpiresAt: "",
+          },
+        },
         { new: true },
       )
       .exec();
+    if (cancelled)
+      await this.notify(
+        cancelled,
+        viewing.ownerId === userId ? viewing.visitorId : viewing.ownerId,
+        "cancelled",
+      );
+    return cancelled;
   }
 
   async startPayment(visitorId: string, id: string) {
@@ -501,6 +654,27 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
       ? viewing.paidAt.getTime() + 48 * 60 * 60 * 1000
       : Number.POSITIVE_INFINITY;
     return new Date(Math.min(viewing.startsAt.getTime(), afterPayment));
+  }
+
+  private async notify(
+    viewing: ViewingDocument,
+    recipientId: string,
+    event:
+      | "requested"
+      | "accepted"
+      | "counter_proposed"
+      | "proposal_accepted"
+      | "proposal_declined"
+      | "rejected"
+      | "cancelled",
+  ) {
+    await this.pushService?.sendViewingUpdate(
+      recipientId,
+      viewing._id.toString(),
+      viewing.productId.toString(),
+      viewing.productTitle,
+      event,
+    );
   }
 
   private async requireVerifiedIdentity(userId: string, message: string) {

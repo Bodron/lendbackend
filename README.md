@@ -15,6 +15,11 @@ API health check:
 curl http://localhost:3000/api/health
 ```
 
+`GET /api/app-version` returns the public Android and iOS update settings from
+`APP_LATEST_VERSION_*`, `APP_MINIMUM_VERSION_*`, and `APP_UPDATE_URL_*` in the
+backend environment. Empty values disable prompts. The Flutter app uses these
+settings to show an optional or required update dialog.
+
 MongoDB is exposed on `localhost:27017` and uses the `lend` database.
 
 ## Run locally
@@ -29,6 +34,39 @@ npm run start:dev
 ```
 
 The default local URL is `http://localhost:3000/api`.
+
+## PINLEND legal documents
+
+`GET /api/legal/documents?lang=ro` (or `lang=en`) serves the four versioned
+PINLEND documents. `GET /api/legal/status` and `POST /api/legal/accept` require
+a bearer token. The accept request contains the exact `id`, `version`, and
+`hash` values returned by the documents endpoint. MongoDB stores one
+timestamped acceptance per user and document version; old records remain when
+a document changes. The mobile app asks users to read and accept the current
+documents after sign-in and shows accepted dates in the profile.
+
+The text in `src/legal/legal-documents.ts` is an adapted draft. Updating text in
+either language changes its hash and requires fresh acceptance. The legal
+drafts need review before publication.
+
+## Paid viewings and alternative times
+
+A viewing request is unpaid until the owner accepts it. The owner can accept,
+reject, or propose another date and time. A proposal stays open for at most 24
+hours and closes one hour before the proposed time. The visitor can accept or
+decline it. Accepting a paid viewing moves it to `awaiting_payment`; payment and
+both identity checks happen afterward.
+The existing push service notifies the other participant when a request,
+proposal, decision, or cancellation is saved. Opening a viewing notification
+takes the user to the listing. The listing also refreshes its viewings when the
+app returns to the foreground.
+
+Rejecting an unpaid request needs no refund. If the owner cancels after a
+successful viewing payment, the full charge, including the service fee, is
+refunded to the original payment method. The existing Stripe refund webhook
+updates the refund status shown in the app. A refund in progress is marked
+`refund_pending` for retry by the reconciliation job if the initial Stripe
+request fails.
 
 ## Rental verification and payment holds
 

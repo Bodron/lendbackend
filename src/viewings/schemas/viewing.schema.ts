@@ -23,6 +23,12 @@ export class Viewing {
   @Prop({ required: true })
   startsAt!: Date;
 
+  @Prop()
+  proposedStartsAt?: Date;
+
+  @Prop()
+  proposalExpiresAt?: Date;
+
   @Prop({ unique: true, sparse: true })
   reservedSlot?: string;
 
@@ -30,6 +36,7 @@ export class Viewing {
     required: true,
     enum: [
       "requested",
+      "counter_proposed",
       "awaiting_payment",
       "awaiting_verification",
       "refund_pending",
@@ -41,6 +48,7 @@ export class Viewing {
   })
   status!:
     | "requested"
+    | "counter_proposed"
     | "awaiting_payment"
     | "awaiting_verification"
     | "refund_pending"

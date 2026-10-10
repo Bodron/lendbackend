@@ -14,6 +14,7 @@ import { MessagesModule } from "./messages/messages.module";
 import { ReviewsModule } from "./reviews/reviews.module";
 import { RoommatePostsModule } from "./roommate-posts/roommate-posts.module";
 import { ViewingsModule } from "./viewings/viewings.module";
+import { LegalModule } from "./legal/legal.module";
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { ViewingsModule } from "./viewings/viewings.module";
     ReviewsModule,
     RoommatePostsModule,
     ViewingsModule,
+    LegalModule,
   ],
   controllers: [AppController],
   providers: [AppService],
