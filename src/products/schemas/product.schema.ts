@@ -96,6 +96,18 @@ export class Product {
   @Prop({ required: true, default: true })
   isAvailable!: boolean;
 
+  @Prop({ default: false, index: true })
+  isClosedByAdmin!: boolean;
+
+  @Prop({ trim: true })
+  adminCloseReason?: string;
+
+  @Prop()
+  adminClosedAt?: Date;
+
+  @Prop({ trim: true })
+  adminClosedBy?: string;
+
   @Prop({ required: true, min: 1, max: 100, default: 1 })
   stockQuantity!: number;
 

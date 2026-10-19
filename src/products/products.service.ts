@@ -44,7 +44,7 @@ export class ProductsService {
 
   async findAll(): Promise<ProductResponse[]> {
     const products = await this.productModel
-      .find()
+      .find({ isClosedByAdmin: { $ne: true } })
       .sort({ createdAt: -1 })
       .exec();
     return Promise.all(
@@ -219,7 +219,9 @@ export class ProductsService {
   }
 
   async findBySlug(slug: string): Promise<ProductResponse | null> {
-    const product = await this.productModel.findOne({ slug }).exec();
+    const product = await this.productModel
+      .findOne({ slug, isClosedByAdmin: { $ne: true } })
+      .exec();
     return product ? this.withReadableImageUrls(product) : null;
   }
 

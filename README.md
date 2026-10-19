@@ -15,12 +15,15 @@ API health check:
 curl http://localhost:3000/api/health
 ```
 
+Același Compose pornește și panoul Next.js la `http://localhost:3001`.
+Setează un `JWT_SECRET` sigur în `.env`; imaginea API rulează în modul production și respinge valoarea demonstrativă.
+
 `GET /api/app-version` returns the public Android and iOS update settings from
 `APP_LATEST_VERSION_*`, `APP_MINIMUM_VERSION_*`, and `APP_UPDATE_URL_*` in the
 backend environment. Empty values disable prompts. The Flutter app uses these
 settings to show an optional or required update dialog.
 
-MongoDB is exposed on `localhost:27017` and uses the `lend` database.
+MongoDB is external and configured through `MONGODB_URI` in `.env`. The Compose file starts the API and admin panel; the API becomes healthy only after it connects to MongoDB. Check with `docker compose ps` and `GET /api/health`.
 
 ## Run locally
 

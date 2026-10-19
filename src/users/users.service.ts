@@ -5,6 +5,7 @@ import { User, UserDocument } from "./schemas/user.schema";
 
 export type SafeUser = {
   id: string;
+  role: "user" | "super_admin";
   fullName: string;
   email: string;
   phone: string;
@@ -252,6 +253,7 @@ export class UsersService {
 
     return {
       id: user._id.toString(),
+      role: user.role ?? "user",
       fullName: user.fullName,
       email: user.email,
       phone: user.phone,

@@ -53,7 +53,8 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
       !product ||
       product.categorySlug !== "imobiliare" ||
       !product.viewingsEnabled ||
-      !product.isAvailable
+      !product.isAvailable ||
+      product.isClosedByAdmin
     ) {
       throw new BadRequestException("Acest anunt nu accepta vizionari.");
     }

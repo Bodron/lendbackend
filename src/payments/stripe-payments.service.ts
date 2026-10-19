@@ -216,8 +216,10 @@ export class StripePaymentsService {
     });
   }
 
-  async createAccountLink(input: { accountId: string }) {
-    const baseUrl = this.getPublicBaseUrl();
+  async createAccountLink(input: { accountId: string; platform?: "web" }) {
+    const baseUrl = input.platform === "web"
+      ? this.getWebBaseUrl()
+      : this.getPublicBaseUrl();
 
     return this.getStripe().accountLinks.create({
       account: input.accountId,
@@ -225,6 +227,18 @@ export class StripePaymentsService {
       refresh_url: `${baseUrl}/stripe/connect/refresh`,
       return_url: `${baseUrl}/stripe/connect/return`,
     });
+  }
+
+  private getWebBaseUrl(): string {
+    const configuredUrl = this.configService.get<string>("SITE_PUBLIC_URL");
+    if (!configuredUrl) {
+      throw new BadRequestException("Lipsește SITE_PUBLIC_URL pentru Stripe Connect pe site.");
+    }
+    const url = new URL(configuredUrl);
+    if (!(["http:", "https:"].includes(url.protocol))) {
+      throw new BadRequestException("SITE_PUBLIC_URL trebuie să fie un URL HTTP valid.");
+    }
+    return url.toString().replace(/\/$/, "");
   }
 
   private getPublicBaseUrl(): string {
@@ -257,15 +271,19 @@ export class StripePaymentsService {
     amountRon: number;
     destinationAccountId: string;
     userId: string;
+    idempotencyKey: string;
   }) {
-    return this.getStripe().transfers.create({
-      amount: this.toMinorUnits(input.amountRon),
-      currency: "ron",
-      destination: input.destinationAccountId,
-      metadata: {
-        ownerId: input.userId,
+    return this.getStripe().transfers.create(
+      {
+        amount: this.toMinorUnits(input.amountRon),
+        currency: "ron",
+        destination: input.destinationAccountId,
+        metadata: {
+          ownerId: input.userId,
+        },
       },
-    });
+      { idempotencyKey: `owner-payout-${input.idempotencyKey}` },
+    );
   }
 
   private getStripe(): Stripe {

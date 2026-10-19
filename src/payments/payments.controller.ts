@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
+import { createHash } from "node:crypto";
 import { AuthService } from "../auth/auth.service";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
 import {
@@ -239,6 +240,7 @@ export class PaymentsController {
 
     const link = await this.stripePaymentsService.createAccountLink({
       accountId,
+      platform: requestPayoutDto?.platform,
     });
 
     return { url: link.url };
@@ -329,6 +331,7 @@ export class PaymentsController {
     if (!account.payouts_enabled || !account.details_submitted) {
       const link = await this.stripePaymentsService.createAccountLink({
         accountId,
+        platform: requestPayoutDto.platform,
       });
 
       return {
@@ -371,6 +374,9 @@ export class PaymentsController {
       amountRon: amount,
       destinationAccountId: accountId,
       userId,
+      idempotencyKey: createHash("sha256")
+        .update(`${accountId}:${payableOrders.map((order) => order._id.toString()).sort().join(",")}`)
+        .digest("hex"),
     });
 
     await this.rentalOrderModel

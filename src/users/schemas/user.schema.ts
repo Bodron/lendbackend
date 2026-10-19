@@ -5,6 +5,8 @@ export type UserDocument = HydratedDocument<User>;
 
 @Schema({ timestamps: true })
 export class User {
+  @Prop({ enum: ["user", "super_admin"], default: "user", index: true })
+  role!: "user" | "super_admin";
   @Prop({ required: true, trim: true })
   fullName!: string;
 

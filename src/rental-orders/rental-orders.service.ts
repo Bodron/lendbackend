@@ -107,7 +107,7 @@ export class RentalOrdersService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException("Produsul nu a fost gasit.");
     }
 
-    if (!product.isAvailable) {
+    if (!product.isAvailable || product.isClosedByAdmin) {
       throw new ConflictException(
         "Produsul nu este disponibil pentru inchiriere.",
       );

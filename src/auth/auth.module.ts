@@ -14,12 +14,18 @@ import { AuthService } from "./auth.service";
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>("JWT_SECRET", "change-this-secret"),
-        signOptions: {
-          expiresIn: configService.get<StringValue>("JWT_EXPIRES_IN", "7d"),
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const secret = configService.get<string>("JWT_SECRET", "change-this-secret");
+        if (process.env.NODE_ENV === "production" && (!secret || secret === "change-this-secret")) {
+          throw new Error("Set a strong JWT_SECRET before starting the production API.");
+        }
+        return {
+          secret,
+          signOptions: {
+            expiresIn: configService.get<StringValue>("JWT_EXPIRES_IN", "7d"),
+          },
+        };
+      },
     }),
   ],
   controllers: [AuthController],
