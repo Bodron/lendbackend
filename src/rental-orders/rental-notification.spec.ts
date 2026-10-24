@@ -39,6 +39,7 @@ describe("rental request notifications", () => {
       {} as any,
       payments as any,
       push as any,
+      {} as any,
     );
 
     await service.markPaymentAuthorized("renter", orderId.toString());

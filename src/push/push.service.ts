@@ -69,6 +69,7 @@ export class PushService {
     messageId: string,
     productId: string,
     productTitle: string,
+    senderId?: string,
   ) {
     if (!this.app) return;
     try {
@@ -93,6 +94,7 @@ export class PushService {
             messageId,
             productId,
             productTitle: productTitle.slice(0, 150),
+            ...(senderId ? { senderId } : {}),
           },
           apns: {
             headers: { "apns-push-type": "alert", "apns-priority": "10" },

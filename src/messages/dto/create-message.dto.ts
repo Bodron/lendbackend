@@ -14,6 +14,10 @@ export class CreateMessageDto {
   @IsMongoId()
   roommateInterestId?: string;
 
+  @IsOptional()
+  @IsString()
+  recipientId?: string;
+
   @IsString()
   @MinLength(1)
   @MaxLength(2000)

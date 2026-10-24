@@ -21,6 +21,7 @@ import { S3StorageService } from "../storage/s3-storage.service";
 import { UsersService } from "../users/users.service";
 import { StripePaymentsService } from "../payments/stripe-payments.service";
 import { PushService } from "../push/push.service";
+import { RentalOffer, RentalOfferDocument } from "../messages/schemas/rental-offer.schema";
 import { AttachRentalContractDto } from "./dto/attach-rental-contract.dto";
 import { CreateAvailabilityBlockDto } from "./dto/create-availability-block.dto";
 import { CreateRentalOrderDto } from "./dto/create-rental-order.dto";
@@ -59,6 +60,8 @@ export class RentalOrdersService implements OnModuleInit, OnModuleDestroy {
     private readonly usersService: UsersService,
     private readonly stripePaymentsService: StripePaymentsService,
     private readonly pushService: PushService,
+    @InjectModel(RentalOffer.name)
+    private readonly offerModel: Model<RentalOfferDocument>,
   ) {}
 
   onModuleInit() {
@@ -176,6 +179,24 @@ export class RentalOrdersService implements OnModuleInit, OnModuleDestroy {
         : rentalMode === "month"
           ? product.pricePerMonth!
           : range.rentalDays * product.pricePerDay;
+    if (dto.negotiatedSubtotal !== undefined) {
+      if (!dto.offerId) throw new BadRequestException("Oferta negociata lipseste.");
+      const offer = await this.offerModel.findOne({
+        _id: dto.offerId,
+        productId: dto.productId,
+        senderId: renterId,
+        recipientId: product.ownerId,
+        status: "checkout_started",
+      }).exec();
+      if (!offer || offer.amount !== dto.negotiatedSubtotal ||
+          offer.rentalMode !== rentalMode ||
+          offer.startDate.toISOString().slice(0, 10) !== range.startDate.toISOString().slice(0, 10) ||
+          offer.endDate.toISOString().slice(0, 10) !== range.endDate.toISOString().slice(0, 10)) {
+        throw new BadRequestException("Oferta negociata nu corespunde inchirierii.");
+      }
+    } else if (dto.offerId) {
+      throw new BadRequestException("Suma ofertei negociate lipseste.");
+    }
     const subtotal = dto.negotiatedSubtotal ?? calculatedSubtotal;
     if (dto.negotiatedSubtotal !== undefined && dto.negotiatedSubtotal <= 0) {
       throw new BadRequestException("Suma negociata nu este valida.");

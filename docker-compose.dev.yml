@@ -1,0 +1,10 @@
+services:
+  site:
+    build:
+      target: development
+    volumes:
+      - ../site:/app
+      - site_node_modules:/app/node_modules
+
+volumes:
+  site_node_modules:

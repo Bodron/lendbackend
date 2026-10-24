@@ -16,13 +16,18 @@ describe("Message push integration", () => {
 
   it("notifies the owner after saving a buyer message", async () => {
     await service.create("buyer", { productId: productId.toString(), body: "Hello" });
-    expect(push.sendMessage).toHaveBeenCalledWith("owner", messageId.toString(), productId.toString(), "Product");
+    expect(push.sendMessage).toHaveBeenCalledWith("owner", messageId.toString(), productId.toString(), "Product", "buyer");
   });
 
   it("notifies the buyer when the owner replies", async () => {
-    messages.findOne.mockReturnValue({ sort: () => ({ exec: async () => ({ senderId: "buyer", recipientId: "owner" }) }) });
-    await service.create("owner", { productId: productId.toString(), body: "Reply" });
-    expect(push.sendMessage).toHaveBeenCalledWith("buyer", messageId.toString(), productId.toString(), "Product");
+    messages.findOne.mockReturnValue({ exec: async () => ({ senderId: "buyer", recipientId: "owner" }) });
+    await service.create("owner", { productId: productId.toString(), recipientId: "buyer", body: "Reply" });
+    expect(push.sendMessage).toHaveBeenCalledWith("buyer", messageId.toString(), productId.toString(), "Product", "owner");
+  });
+
+  it("requires the owner to select a conversation before replying", async () => {
+    await expect(service.create("owner", { productId: productId.toString(), body: "Reply" })).rejects.toThrow();
+    expect(messages.create).not.toHaveBeenCalled();
   });
 
   it("does not send push if saving the message fails", async () => {

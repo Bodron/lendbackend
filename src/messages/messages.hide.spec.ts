@@ -38,4 +38,17 @@ describe("MessagesService.hideThread", () => {
     await expect(service.hideThread("alice", "invalid")).rejects.toThrow();
     expect(updateMany).not.toHaveBeenCalled();
   });
+
+  it("hides only the selected participant's conversation", async () => {
+    await service.hideThread("owner", productId.toString(), undefined, "buyer");
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $or: [
+          { senderId: "owner", recipientId: "buyer" },
+          { senderId: "buyer", recipientId: "owner" },
+        ],
+      }),
+      { $addToSet: { hiddenForUserIds: "owner" } },
+    );
+  });
 });

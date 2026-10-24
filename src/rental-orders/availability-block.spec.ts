@@ -41,6 +41,7 @@ describe("manual availability blocks", () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
     );
 
     await expect(

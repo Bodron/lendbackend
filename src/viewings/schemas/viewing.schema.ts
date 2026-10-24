@@ -17,6 +17,10 @@ export class Viewing {
   @Prop({ required: true, index: true })
   visitorId!: string;
 
+  // One active viewing per visitor and listing, including concurrent requests.
+  @Prop({ unique: true, sparse: true })
+  activeRequestKey?: string;
+
   @Prop({ required: true })
   visitorName!: string;
 

@@ -34,11 +34,13 @@ export class MessagesController {
     @Headers("authorization") authorization: string | undefined,
     @Param("productId") productId: string,
     @Query("roommateInterestId") roommateInterestId?: string,
+    @Query("participantId") participantId?: string,
   ) {
     return this.messagesService.findForProduct(
       this.getUserId(authorization),
       productId,
       roommateInterestId,
+      participantId,
     );
   }
 
@@ -47,11 +49,13 @@ export class MessagesController {
     @Headers("authorization") authorization: string | undefined,
     @Param("productId") productId: string,
     @Query("roommateInterestId") roommateInterestId?: string,
+    @Query("participantId") participantId?: string,
   ) {
     return this.messagesService.hideThread(
       this.getUserId(authorization),
       productId,
       roommateInterestId,
+      participantId,
     );
   }
 

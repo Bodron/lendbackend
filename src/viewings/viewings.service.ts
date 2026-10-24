@@ -82,30 +82,42 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
     const duplicate = await this.viewingModel.exists({
       productId: product._id,
       visitorId,
-      startsAt,
       status: {
         $in: [
           "requested",
           "counter_proposed",
           "awaiting_payment",
           "awaiting_verification",
+          "refund_pending",
           "confirmed",
         ],
       },
     });
     if (duplicate)
-      throw new ConflictException("Ai deja o cerere pentru aceasta ora.");
-    const viewing = await this.viewingModel.create({
-      productId: product._id,
-      productTitle: product.title,
-      ownerId: product.ownerId,
-      visitorId,
-      visitorName: visitor.fullName,
-      startsAt,
-      status: "requested",
-      priceRon: product.viewingPriceRon ?? 0,
-      serviceFeeRon: Math.round((product.viewingPriceRon ?? 0) * 0.05),
-    });
+      throw new ConflictException(
+        "Ai deja o vizionare in curs pentru acest anunt.",
+      );
+    let viewing: ViewingDocument;
+    try {
+      viewing = await this.viewingModel.create({
+        productId: product._id,
+        productTitle: product.title,
+        ownerId: product.ownerId,
+        visitorId,
+        activeRequestKey: `${visitorId}:${product._id}`,
+        visitorName: visitor.fullName,
+        startsAt,
+        status: "requested",
+        priceRon: product.viewingPriceRon ?? 0,
+        serviceFeeRon: Math.round((product.viewingPriceRon ?? 0) * 0.05),
+      });
+    } catch (error) {
+      if ((error as { code?: number }).code === 11000)
+        throw new ConflictException(
+          "Ai deja o vizionare in curs pentru acest anunt.",
+        );
+      throw error;
+    }
     await this.notify(viewing, viewing.ownerId, "requested");
     return viewing;
   }
@@ -132,7 +144,9 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
     const viewing = await this.find(id);
     if (viewing.ownerId !== ownerId) throw new ForbiddenException();
     if (!["requested", "counter_proposed"].includes(viewing.status))
-      throw new ConflictException("Ora acestei vizionari nu mai poate fi schimbata.");
+      throw new ConflictException(
+        "Ora acestei vizionari nu mai poate fi schimbata.",
+      );
     const startsAt = new Date(startsAtValue ?? "");
     if (
       !Number.isFinite(startsAt.getTime()) ||
@@ -148,13 +162,18 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
       _id: { $ne: viewing._id },
       productId: viewing.productId,
       startsAt,
-      status: { $in: ["awaiting_payment", "awaiting_verification", "confirmed"] },
+      status: {
+        $in: ["awaiting_payment", "awaiting_verification", "confirmed"],
+      },
     });
     if (overlapping)
       throw new ConflictException("Aceasta ora este deja rezervata.");
     await this.assertOwnerCanReceivePayment(viewing);
     const expiresAt = new Date(
-      Math.min(Date.now() + 24 * 60 * 60 * 1000, startsAt.getTime() - 60 * 60 * 1000),
+      Math.min(
+        Date.now() + 24 * 60 * 60 * 1000,
+        startsAt.getTime() - 60 * 60 * 1000,
+      ),
     );
     const updated = await this.viewingModel
       .findOneAndUpdate(
@@ -169,7 +188,8 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
         { new: true },
       )
       .exec();
-    if (!updated) throw new ConflictException("Cererea a fost deja modificata.");
+    if (!updated)
+      throw new ConflictException("Cererea a fost deja modificata.");
     await this.notify(updated, updated.visitorId, "counter_proposed");
     return updated;
   }
@@ -198,12 +218,17 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
         { _id: viewing._id, status: "counter_proposed" },
         {
           $set: { status: "cancelled" },
-          $unset: { proposedStartsAt: "", proposalExpiresAt: "" },
+          $unset: {
+            proposedStartsAt: "",
+            proposalExpiresAt: "",
+            activeRequestKey: "",
+          },
         },
         { new: true },
       )
       .exec();
-    if (!updated) throw new ConflictException("Propunerea a fost deja modificata.");
+    if (!updated)
+      throw new ConflictException("Propunerea a fost deja modificata.");
     await this.notify(updated, updated.ownerId, "proposal_declined");
     return updated;
   }
@@ -235,7 +260,10 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
             _id: viewing._id,
             status: expectedStatus,
             ...(expectedStatus === "counter_proposed"
-              ? { proposedStartsAt: startsAt, proposalExpiresAt: { $gt: new Date() } }
+              ? {
+                  proposedStartsAt: startsAt,
+                  proposalExpiresAt: { $gt: new Date() },
+                }
               : {}),
           },
           {
@@ -280,10 +308,17 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
     if (viewing.ownerId !== ownerId) throw new ForbiddenException();
     const updated = await this.viewingModel
       .findOneAndUpdate(
-        { _id: viewing._id, status: { $in: ["requested", "counter_proposed"] } },
+        {
+          _id: viewing._id,
+          status: { $in: ["requested", "counter_proposed"] },
+        },
         {
           $set: { status: "rejected" },
-          $unset: { proposedStartsAt: "", proposalExpiresAt: "" },
+          $unset: {
+            proposedStartsAt: "",
+            proposalExpiresAt: "",
+            activeRequestKey: "",
+          },
         },
         { new: true },
       )
@@ -328,7 +363,10 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
         : await this.viewingModel
             .findOneAndUpdate(
               { _id: viewing._id, status: "confirmed" },
-              { $set: { status: "completed" }, $unset: { reservedSlot: "" } },
+              {
+                $set: { status: "completed" },
+                $unset: { reservedSlot: "", activeRequestKey: "" },
+              },
               { new: true },
             )
             .exec();
@@ -399,7 +437,10 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
       const cancelled = await this.viewingModel
         .findOneAndUpdate(
           { _id: viewing._id, status: viewing.status },
-          { $set: { status: "cancelled" }, $unset: { reservedSlot: "" } },
+          {
+            $set: { status: "cancelled" },
+            $unset: { reservedSlot: "", activeRequestKey: "" },
+          },
           { new: true },
         )
         .exec();
@@ -411,7 +452,11 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
         );
       return cancelled;
     }
-    if (!["requested", "counter_proposed", "awaiting_payment"].includes(viewing.status))
+    if (
+      !["requested", "counter_proposed", "awaiting_payment"].includes(
+        viewing.status,
+      )
+    )
       throw new ConflictException("Vizionarea nu mai poate fi anulata.");
     if (viewing.stripePaymentIntentId) {
       const intent = await this.stripePaymentsService.getPaymentIntent(
@@ -444,7 +489,9 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
       .findOneAndUpdate(
         {
           _id: viewing._id,
-          status: { $in: ["requested", "counter_proposed", "awaiting_payment"] },
+          status: {
+            $in: ["requested", "counter_proposed", "awaiting_payment"],
+          },
         },
         {
           $set: { status: "cancelled" },
@@ -452,6 +499,7 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
             reservedSlot: "",
             proposedStartsAt: "",
             proposalExpiresAt: "",
+            activeRequestKey: "",
           },
         },
         { new: true },
@@ -574,7 +622,7 @@ export class ViewingsService implements OnModuleInit, OnModuleDestroy {
             stripeRefundId: refund.id,
             refundStatus: refund.status,
           },
-          $unset: { reservedSlot: "" },
+          $unset: { reservedSlot: "", activeRequestKey: "" },
         },
         { new: true },
       )

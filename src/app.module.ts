@@ -16,6 +16,7 @@ import { RoommatePostsModule } from "./roommate-posts/roommate-posts.module";
 import { ViewingsModule } from "./viewings/viewings.module";
 import { LegalModule } from "./legal/legal.module";
 import { AdminModule } from "./admin/admin.module";
+import { FavoritesModule } from "./favorites/favorites.module";
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AdminModule } from "./admin/admin.module";
     StorageModule,
     PaymentsModule,
     ProductsModule,
+    FavoritesModule,
     RentalOrdersModule,
     MessagesModule,
     ReviewsModule,

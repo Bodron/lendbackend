@@ -60,6 +60,7 @@ describe("Rental payment release", () => {
         isLiveMode: () => false,
       } as any,
       {} as any,
+      {} as any,
     );
   });
 

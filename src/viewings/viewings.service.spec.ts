@@ -5,6 +5,116 @@ import {
 } from "@nestjs/common";
 import { ViewingsService } from "./viewings.service";
 
+describe("ViewingsService one active request per listing", () => {
+  const productId = "507f1f77bcf86cd799439011";
+  const viewingId = "507f1f77bcf86cd799439012";
+  const startsAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+  const product = {
+    _id: productId,
+    title: "Apartment",
+    categorySlug: "imobiliare",
+    viewingsEnabled: true,
+    isAvailable: true,
+    isClosedByAdmin: false,
+    ownerId: "owner-1",
+    viewingPriceRon: 100,
+  };
+  const exists = jest.fn();
+  const create = jest.fn();
+  const findById = jest.fn();
+  const findProductById = jest.fn();
+  const findUserById = jest.fn();
+  const findOneAndUpdate = jest.fn();
+  const service = new ViewingsService(
+    { exists, create, findById, findOneAndUpdate } as any,
+    { findById: findProductById } as any,
+    { findById: findUserById } as any,
+    {} as any,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    findProductById.mockReturnValue({ exec: async () => product });
+    findUserById.mockResolvedValue({ fullName: "Visitor" });
+    exists.mockResolvedValue(null);
+    create.mockImplementation(async (data) => ({ _id: viewingId, ...data }));
+  });
+
+  it("rejects a second request for another time while the first is active", async () => {
+    exists.mockResolvedValue({ _id: viewingId });
+
+    await expect(
+      service.request("visitor-1", {
+        productId,
+        startsAt: startsAt.toISOString(),
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(exists).toHaveBeenCalledWith({
+      productId,
+      visitorId: "visitor-1",
+      status: {
+        $in: [
+          "requested",
+          "counter_proposed",
+          "awaiting_payment",
+          "awaiting_verification",
+          "refund_pending",
+          "confirmed",
+        ],
+      },
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("reserves one active request key and translates concurrent inserts to a conflict", async () => {
+    await service.request("visitor-1", {
+      productId,
+      startsAt: startsAt.toISOString(),
+    });
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ activeRequestKey: `visitor-1:${productId}` }),
+    );
+
+    create.mockRejectedValueOnce({ code: 11000 });
+    await expect(
+      service.request("visitor-1", {
+        productId,
+        startsAt: startsAt.toISOString(),
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("releases the key when the owner rejects the request", async () => {
+    findById.mockReturnValue({
+      exec: async () => ({
+        _id: viewingId,
+        ownerId: "owner-1",
+        visitorId: "visitor-1",
+        productId,
+        productTitle: "Apartment",
+        status: "requested",
+      }),
+    });
+    findOneAndUpdate.mockReturnValue({
+      exec: async () => ({
+        _id: viewingId,
+        productId,
+        productTitle: "Apartment",
+      }),
+    });
+
+    await service.reject("owner-1", viewingId);
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        $set: { status: "rejected" },
+        $unset: expect.objectContaining({ activeRequestKey: "" }),
+      }),
+      { new: true },
+    );
+  });
+});
+
 describe("ViewingsService payment confirmation", () => {
   const viewingId = "507f1f77bcf86cd799439011";
   const viewing = {

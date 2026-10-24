@@ -40,6 +40,10 @@ export class CreateRentalOrderDto {
   negotiatedSubtotal?: number;
 
   @IsOptional()
+  @IsMongoId()
+  offerId?: string;
+
+  @IsOptional()
   @IsNumber()
   renterLatitude?: number;
 

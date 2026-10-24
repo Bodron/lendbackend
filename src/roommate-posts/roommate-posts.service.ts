@@ -243,6 +243,7 @@ export class RoommatePostsService implements OnModuleInit {
       product: product
         ? {
             id: product._id.toString(),
+            slug: product.slug,
             title: product.title,
             city: product.city,
             address: product.address,

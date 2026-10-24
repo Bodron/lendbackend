@@ -36,6 +36,7 @@ export class MessagesService {
     userId: string,
     productId: string,
     roommateInterestId?: string,
+    participantId?: string,
   ) {
     if (!Types.ObjectId.isValid(productId)) {
       throw new NotFoundException("Anuntul nu a fost gasit.");
@@ -46,17 +47,22 @@ export class MessagesService {
 
     const product = await this.productModel
       .findById(productId)
-      .select("ownerId ownerName title")
+      .select("ownerId ownerName title slug")
       .exec();
     if (!product) {
       throw new NotFoundException("Anuntul nu a fost gasit.");
     }
+    const otherUserId = product.ownerId === userId ? participantId : product.ownerId;
+    if (product.ownerId !== userId && participantId && participantId !== product.ownerId) {
+      throw new BadRequestException("Conversatia nu este valida.");
+    }
+    const pair = otherUserId ? this.pairScope(userId, otherUserId) : { _id: { $exists: false } };
 
     const messages = await this.messageModel
       .find({
         productId: product._id,
         ...this.threadScope(roommateInterestId),
-        $or: [{ senderId: userId }, { recipientId: userId }],
+        ...pair,
         hiddenForUserIds: { $ne: userId },
       })
       .sort({ createdAt: 1 })
@@ -69,18 +75,13 @@ export class MessagesService {
           recipientId: userId,
           read: false,
           ...this.threadScope(roommateInterestId),
+          ...pair,
           hiddenForUserIds: { $ne: userId },
         },
         { $set: { read: true } },
       )
       .exec();
 
-    const latestMessage = messages[messages.length - 1];
-    const otherUserId = latestMessage
-      ? latestMessage.senderId === userId
-        ? latestMessage.recipientId
-        : latestMessage.senderId
-      : product.ownerId;
     const participant = otherUserId
       ? await this.userModel
           .findById(otherUserId)
@@ -94,7 +95,9 @@ export class MessagesService {
     return {
       productId,
       roommateInterestId: roommateInterestId ?? null,
+      participantId: otherUserId ?? null,
       productTitle: product.title,
+      productSlug: product.slug,
       ownerId: product.ownerId,
       ownerName: product.ownerName,
       participantName:
@@ -102,14 +105,14 @@ export class MessagesService {
       participantAvatarUrl,
       offers: roommateInterestId
         ? []
-        : await this.findOffers(userId, productId),
+        : await this.findOffers(userId, productId, otherUserId),
       messages,
     };
   }
 
-  async findOffers(userId: string, productId: string) {
+  async findOffers(userId: string, productId: string, participantId?: string) {
     return this.offerModel
-      .find({ productId, $or: [{ senderId: userId }, { recipientId: userId }] })
+      .find({ productId, ...(participantId ? this.pairScope(userId, participantId) : { $or: [{ senderId: userId }, { recipientId: userId }] }) })
       .sort({ createdAt: 1 })
       .exec();
   }
@@ -184,6 +187,7 @@ export class MessagesService {
       const key = this.threadKey(
         message.productId.toString(),
         message.roommateInterestId?.toString(),
+        message.senderId === userId ? message.recipientId : message.senderId,
       );
       if (!latestByThread.has(key)) {
         latestByThread.set(key, message);
@@ -194,6 +198,7 @@ export class MessagesService {
       [...latestByThread.values()].map(async (latest) => {
         const productId = latest.productId;
         const roommateInterestId = latest.roommateInterestId?.toString();
+        const otherUserId = latest.senderId === userId ? latest.recipientId : latest.senderId;
         const scope = this.threadScope(roommateInterestId);
         const [unread, product] = await Promise.all([
           this.messageModel.countDocuments({
@@ -201,6 +206,7 @@ export class MessagesService {
             recipientId: userId,
             read: false,
             ...scope,
+            ...this.pairScope(userId, otherUserId),
             hiddenForUserIds: { $ne: userId },
           }),
           this.productModel
@@ -208,11 +214,6 @@ export class MessagesService {
             .select("title ownerId ownerName")
             .exec(),
         ]);
-        const otherUserId = latest
-          ? latest.senderId === userId
-            ? latest.recipientId
-            : latest.senderId
-          : product?.ownerId;
         const participant = otherUserId
           ? await this.userModel
               .findById(otherUserId)
@@ -225,6 +226,7 @@ export class MessagesService {
         return {
           productId: productId.toString(),
           roommateInterestId: roommateInterestId ?? null,
+          participantId: otherUserId,
           productTitle: product?.title ?? "Anunt",
           ownerName: product?.ownerName ?? "Proprietar",
           participantName:
@@ -241,6 +243,7 @@ export class MessagesService {
     userId: string,
     productId: string,
     roommateInterestId?: string,
+    participantId?: string,
   ) {
     if (
       !Types.ObjectId.isValid(productId) ||
@@ -254,7 +257,7 @@ export class MessagesService {
         {
           productId: new Types.ObjectId(productId),
           ...this.threadScope(roommateInterestId),
-          $or: [{ senderId: userId }, { recipientId: userId }],
+          ...(participantId ? this.pairScope(userId, participantId) : { $or: [{ senderId: userId }, { recipientId: userId }] }),
           hiddenForUserIds: { $ne: userId },
         },
         { $addToSet: { hiddenForUserIds: userId } },
@@ -274,20 +277,19 @@ export class MessagesService {
     }
     let recipientId = product.ownerId;
     if (product.ownerId === userId) {
+      if (!dto.recipientId || dto.recipientId === userId) {
+        throw new BadRequestException("Alege conversatia la care raspunzi.");
+      }
       const previousMessage = await this.messageModel
         .findOne({
           productId: product._id,
           ...this.threadScope(dto.roommateInterestId),
-          $or: [{ senderId: userId }, { recipientId: userId }],
+          ...this.pairScope(userId, dto.recipientId),
         })
-        .sort({ createdAt: -1 })
         .exec();
-
-      recipientId = previousMessage
-        ? previousMessage.senderId === userId
-          ? previousMessage.recipientId
-          : previousMessage.senderId
-        : "";
+      recipientId = previousMessage ? dto.recipientId : "";
+    } else if (dto.recipientId && dto.recipientId !== product.ownerId) {
+      throw new BadRequestException("Destinatarul nu este valid.");
     }
 
     if (!recipientId || recipientId === userId) {
@@ -310,6 +312,7 @@ export class MessagesService {
       message._id.toString(),
       product._id.toString(),
       product.title,
+      userId,
     );
     return message;
   }
@@ -347,6 +350,7 @@ export class MessagesService {
       message._id.toString(),
       product._id.toString(),
       product.title,
+      senderId,
     );
     return message;
   }
@@ -357,7 +361,14 @@ export class MessagesService {
       : { roommateInterestId: { $exists: false } };
   }
 
-  private threadKey(productId: string, roommateInterestId?: string) {
-    return `${productId}:${roommateInterestId ?? ""}`;
+  private pairScope(userId: string, otherUserId: string) {
+    return { $or: [
+      { senderId: userId, recipientId: otherUserId },
+      { senderId: otherUserId, recipientId: userId },
+    ] };
+  }
+
+  private threadKey(productId: string, roommateInterestId?: string, participantId?: string) {
+    return `${productId}:${roommateInterestId ?? ""}:${participantId ?? ""}`;
   }
 }
