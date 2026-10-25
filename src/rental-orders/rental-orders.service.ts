@@ -194,6 +194,13 @@ export class RentalOrdersService implements OnModuleInit, OnModuleDestroy {
           offer.endDate.toISOString().slice(0, 10) !== range.endDate.toISOString().slice(0, 10)) {
         throw new BadRequestException("Oferta negociata nu corespunde inchirierii.");
       }
+      if (rentalMode === "hour" &&
+          offer.startDate.toISOString().slice(0, 10) === offer.endDate.toISOString().slice(0, 10) &&
+          (offer.startDate.getUTCHours() !== 0 || offer.endDate.getUTCHours() !== 0) &&
+          (offer.startDate.getUTCHours() * 60 + offer.startDate.getUTCMinutes() !== this.timeToMinutes(pickupTime) ||
+           offer.endDate.getUTCHours() * 60 + offer.endDate.getUTCMinutes() !== this.timeToMinutes(returnTime))) {
+        throw new BadRequestException("Orele inchirierii nu corespund ofertei negociate.");
+      }
     } else if (dto.offerId) {
       throw new BadRequestException("Suma ofertei negociate lipseste.");
     }
@@ -1161,6 +1168,11 @@ export class RentalOrdersService implements OnModuleInit, OnModuleDestroy {
         minutes,
       ),
     );
+  }
+
+  private timeToMinutes(time: string): number {
+    const [hours, minutes] = time.split(":").map(Number);
+    return hours * 60 + minutes;
   }
 
   private toUtcDate(value: string): Date {

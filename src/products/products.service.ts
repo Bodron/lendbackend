@@ -249,6 +249,13 @@ export class ProductsService {
     const products: ProductResponse[] = [];
 
     for (const product of mockProducts) {
+      const existingProduct = await this.productModel
+        .findOne({ slug: product.slug })
+        .select("ownerId ownerName")
+        .exec();
+      const existingOwner = existingProduct?.ownerId
+        ? await this.usersService.findById(existingProduct.ownerId)
+        : null;
       const image = await this.s3StorageService.uploadRemoteImage({
         sourceUrl: `https://picsum.photos/seed/${product.imageSeed}/1200/800`,
         key: `products/${product.slug}.jpg`,
@@ -275,7 +282,10 @@ export class ProductsService {
               pickupTime: product.pickupTime ?? "10:00",
               returnTime: product.returnTime ?? "18:00",
               rentalModes: product.rentalModes ?? ["hour", "day"],
-              ownerName: product.ownerName,
+              ownerName:
+                existingOwner?.fullName ??
+                existingProduct?.ownerName ??
+                product.ownerName,
               rating: product.rating,
               isAvailable: true,
               images: [image],

@@ -128,8 +128,10 @@ export class MessagesService {
       );
     if (new Date(dto.endDate) <= new Date(dto.startDate))
       throw new BadRequestException("Perioada ofertei nu este valida.");
-    if (dto.rentalMode === "month" && !product.rentalModes.includes("month"))
-      throw new BadRequestException("Anuntul nu permite inchiriere lunara.");
+    if (!product.rentalModes.includes(dto.rentalMode))
+      throw new BadRequestException("Modul de inchiriere nu este disponibil pentru acest anunt.");
+    if (dto.rentalMode === "month" && !product.pricePerMonth)
+      throw new BadRequestException("Anuntul nu are un pret lunar configurat.");
     return this.offerModel.create({
       productId: dto.productId,
       senderId: userId,
