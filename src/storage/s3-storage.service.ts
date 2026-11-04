@@ -36,6 +36,10 @@ export class S3StorageService {
   private readonly bucketRegion: string;
   private readonly publicBaseUrl?: string;
   private readonly signedUrlTtlSeconds: number;
+  private readonly readableUrlCache = new Map<
+    string,
+    { url: Promise<string>; expiresAt: number }
+  >();
 
   constructor(private readonly configService: ConfigService) {
     this.bucketName =
@@ -166,7 +170,18 @@ export class S3StorageService {
       throw new Error("Missing BUCKET_NAME or AWS_S3_BUCKET in environment.");
     }
 
-    return getSignedUrl(
+    const now = Date.now();
+    const cached = this.readableUrlCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      this.readableUrlCache.delete(key);
+      this.readableUrlCache.set(key, cached);
+      return cached.url;
+    }
+
+    // Keep the same image URL between polling requests, but renew it before
+    // the S3 signature expires.
+    const cacheSeconds = Math.max(1, this.signedUrlTtlSeconds - 60);
+    const url = getSignedUrl(
       this.client,
       new GetObjectCommand({
         Bucket: this.bucketName,
@@ -174,6 +189,22 @@ export class S3StorageService {
       }),
       { expiresIn: this.signedUrlTtlSeconds },
     );
+    this.readableUrlCache.set(key, {
+      url,
+      expiresAt: now + cacheSeconds * 1000,
+    });
+    if (this.readableUrlCache.size > 1000) {
+      this.readableUrlCache.delete(this.readableUrlCache.keys().next().value!);
+    }
+
+    try {
+      return await url;
+    } catch (error) {
+      if (this.readableUrlCache.get(key)?.url === url) {
+        this.readableUrlCache.delete(key);
+      }
+      throw error;
+    }
   }
 
   private getPublicUrl(key: string): string {

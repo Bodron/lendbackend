@@ -126,6 +126,11 @@ export class MessagesService {
       throw new BadRequestException(
         "Proprietarul nu poate trimite oferta pentru propriul anunt.",
       );
+    if (!product.rentalModes.includes(dto.rentalMode) ||
+        (dto.rentalMode === "month" && !product.pricePerMonth))
+      throw new BadRequestException("Modul de inchiriere nu este disponibil.");
+    if (new Date(dto.startDate) <= new Date())
+      throw new BadRequestException("Oferta trebuie sa inceapa in viitor.");
     if (new Date(dto.endDate) <= new Date(dto.startDate))
       throw new BadRequestException("Perioada ofertei nu este valida.");
     if (!product.rentalModes.includes(dto.rentalMode))

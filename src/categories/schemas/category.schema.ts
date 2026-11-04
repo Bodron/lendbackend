@@ -8,11 +8,17 @@ export class Category {
   @Prop({ required: true, trim: true })
   name!: string;
 
+  @Prop({ required: true, trim: true })
+  nameEn!: string;
+
   @Prop({ required: true, trim: true, unique: true, index: true })
   slug!: string;
 
   @Prop({ required: true, trim: true })
   description!: string;
+
+  @Prop({ required: true, trim: true })
+  descriptionEn!: string;
 
   @Prop({ required: true, trim: true })
   iconName!: string;

@@ -223,7 +223,11 @@ export class AuthService {
   }
 
   verifyToken(token: string): { sub: string; email: string } {
-    return this.jwtService.verify<{ sub: string; email: string }>(token);
+    try {
+      return this.jwtService.verify<{ sub: string; email: string }>(token);
+    } catch {
+      throw new UnauthorizedException("Token invalid sau expirat.");
+    }
   }
 
   private async createAuthResponse(user: SafeUser): Promise<AuthResponse> {

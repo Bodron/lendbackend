@@ -32,8 +32,10 @@ export class CategoriesService implements OnModuleInit {
           {
             $set: {
               name: category.name,
+              nameEn: category.nameEn,
               slug: category.slug,
               description: category.description,
+              descriptionEn: category.descriptionEn,
               iconName: category.iconName,
               sortOrder: category.sortOrder,
               isActive: true,
@@ -55,6 +57,10 @@ export class CategoriesService implements OnModuleInit {
         .findOneAndUpdate(
           { slug: category.slug },
           {
+            $set: {
+              nameEn: category.nameEn,
+              descriptionEn: category.descriptionEn,
+            },
             $setOnInsert: {
               name: category.name,
               slug: category.slug,
