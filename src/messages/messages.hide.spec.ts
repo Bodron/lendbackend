@@ -12,6 +12,7 @@ describe("MessagesService.hideThread", () => {
     {} as any,
     {} as any,
     {} as any,
+    {} as any,
   );
 
   beforeEach(() => jest.clearAllMocks());

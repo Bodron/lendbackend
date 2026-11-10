@@ -7,6 +7,7 @@ import { PushService } from "../push/push.service";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { Product, ProductDocument } from "../products/schemas/product.schema";
+import { RentalOrder, RentalOrderDocument } from "../rental-orders/schemas/rental-order.schema";
 import { S3StorageService } from "../storage/s3-storage.service";
 import { User, UserDocument } from "../users/schemas/user.schema";
 import { CreateMessageDto } from "./dto/create-message.dto";
@@ -30,6 +31,8 @@ export class MessagesService {
     private readonly s3StorageService: S3StorageService,
     @InjectModel(RentalOffer.name)
     private readonly offerModel: Model<RentalOfferDocument>,
+    @InjectModel(RentalOrder.name)
+    private readonly rentalOrderModel: Model<RentalOrderDocument>,
   ) {}
 
   async findForProduct(
@@ -294,7 +297,13 @@ export class MessagesService {
           ...this.pairScope(userId, dto.recipientId),
         })
         .exec();
-      recipientId = previousMessage ? dto.recipientId : "";
+      const rentalOrder = !previousMessage && !dto.roommateInterestId
+        ? await this.rentalOrderModel.findOne({
+            productId: product._id,
+            renterId: dto.recipientId,
+          }).exec()
+        : null;
+      recipientId = previousMessage || rentalOrder ? dto.recipientId : "";
     } else if (dto.recipientId && dto.recipientId !== product.ownerId) {
       throw new BadRequestException("Destinatarul nu este valid.");
     }

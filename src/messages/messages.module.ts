@@ -7,6 +7,7 @@ import { User, UserSchema } from "../users/schemas/user.schema";
 import { Product, ProductSchema } from "../products/schemas/product.schema";
 import { Message, MessageSchema } from "./schemas/message.schema";
 import { RentalOffer, RentalOfferSchema } from "./schemas/rental-offer.schema";
+import { RentalOrder, RentalOrderSchema } from "../rental-orders/schemas/rental-order.schema";
 import { MessagesController } from "./messages.controller";
 import { MessagesService } from "./messages.service";
 import { MessagesGateway } from "./messages.gateway";
@@ -21,6 +22,7 @@ import { MessagesGateway } from "./messages.gateway";
       { name: Product.name, schema: ProductSchema },
       { name: User.name, schema: UserSchema },
       { name: RentalOffer.name, schema: RentalOfferSchema },
+      { name: RentalOrder.name, schema: RentalOrderSchema },
     ]),
   ],
   controllers: [MessagesController],

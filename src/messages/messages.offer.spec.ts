@@ -16,13 +16,14 @@ describe("Rental offer periods", () => {
     {} as any,
     {} as any,
     { create } as any,
+    {} as any,
   );
 
   beforeEach(() => create.mockClear());
 
   it("accepts an hourly offer within one calendar day", async () => {
-    const startDate = "2026-11-01T10:00:00.000Z";
-    const endDate = "2026-11-01T13:00:00.000Z";
+    const startDate = "2099-11-01T10:00:00.000Z";
+    const endDate = "2099-11-01T13:00:00.000Z";
     await service.createOffer("renter", {
       productId, amount: 77, startDate, endDate, rentalMode: "hour",
     });

@@ -19,6 +19,8 @@ export type SafeUser = {
   identityVerificationMode?: "test" | "live";
   stripePayoutsEnabled?: boolean;
   stripeDetailsSubmitted?: boolean;
+  deletionRequestedAt?: Date;
+  deletionRequestStatus?: "pending" | "completed" | "cancelled";
   createdAt?: Date;
   updatedAt?: Date;
 };
@@ -267,6 +269,8 @@ export class UsersService {
       identityVerificationMode: user.identityVerificationMode,
       stripePayoutsEnabled: user.stripePayoutsEnabled,
       stripeDetailsSubmitted: user.stripeDetailsSubmitted,
+      deletionRequestedAt: user.deletionRequestedAt,
+      deletionRequestStatus: user.deletionRequestStatus,
       createdAt,
       updatedAt,
     };
